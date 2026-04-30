@@ -27,14 +27,17 @@ export function convertResponsesRequest(body, options = {}) {
     messages.push({ role: "system", content: stringifyContent(body.instructions) });
   }
 
-  messages.push(...convertInputToMessages(body.input));
+  messages.push(...convertInputToMessages(body.input, options));
 
   const chatRequest = copyKnownChatFields(body);
   chatRequest.model = model;
   chatRequest.messages = messages;
 
   if (Array.isArray(body.tools) && body.tools.length > 0) {
-    chatRequest.tools = body.tools.map(convertTool);
+    const tools = body.tools
+      .map((tool) => convertTool(tool, options))
+      .filter(Boolean);
+    if (tools.length > 0) chatRequest.tools = tools;
   }
 
   if (body.tool_choice) {
@@ -103,6 +106,10 @@ export function chatResponseToAssistantMessages(chatResponse) {
 
   if (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
     result.tool_calls = message.tool_calls;
+  }
+
+  if (message.reasoning_content) {
+    result.reasoning_content = message.reasoning_content;
   }
 
   return [result];
@@ -181,18 +188,52 @@ export function buildResponsesStreamEvents({ id = makeId("resp"), model, chunks 
   return events;
 }
 
-export function convertInputToMessages(input) {
+export function convertInputToMessages(input, options = {}) {
   if (input == null) return [];
   if (typeof input === "string") return [{ role: "user", content: input }];
   if (!Array.isArray(input)) return [{ role: "user", content: stringifyContent(input) }];
 
-  return input.map((item) => {
+  const messages = [];
+  let pendingToolCalls = [];
+
+  const flushToolCalls = () => {
+    if (pendingToolCalls.length === 0) return;
+    const message = {
+      role: "assistant",
+      content: "",
+      tool_calls: pendingToolCalls
+    };
+    const reasoningContent = findReasoningContentForToolCalls(
+      pendingToolCalls,
+      options.reasoningContentByToolCallId
+    );
+    if (reasoningContent) message.reasoning_content = reasoningContent;
+    messages.push(message);
+    pendingToolCalls = [];
+  };
+
+  for (const item of input) {
+    if (item.type === "function_call") {
+      pendingToolCalls.push({
+        id: item.call_id ?? item.id,
+        type: "function",
+        function: {
+          name: item.name ?? "",
+          arguments: item.arguments ?? "{}"
+        }
+      });
+      continue;
+    }
+
+    flushToolCalls();
+
     if (item.type === "function_call_output") {
-      return {
+      messages.push({
         role: "tool",
         tool_call_id: item.call_id,
         content: stringifyContent(item.output)
-      };
+      });
+      continue;
     }
 
     const role = normalizeRole(item.role);
@@ -202,16 +243,34 @@ export function convertInputToMessages(input) {
     if (item.name) message.name = item.name;
     if (Array.isArray(item.tool_calls)) message.tool_calls = item.tool_calls;
 
-    return message;
-  });
+    messages.push(message);
+  }
+
+  flushToolCalls();
+  return messages;
 }
 
-export function convertTool(tool) {
+function findReasoningContentForToolCalls(toolCalls, reasoningContentByToolCallId) {
+  if (!reasoningContentByToolCallId) return "";
+
+  for (const toolCall of toolCalls) {
+    const value = reasoningContentByToolCallId.get?.(toolCall.id);
+    if (value) return value;
+  }
+
+  return "";
+}
+
+export function convertTool(tool, options = {}) {
   if (BUILT_IN_TOOL_TYPES.has(tool.type)) {
-    throw new UnsupportedToolError(tool.type);
+    if (options.unsupportedToolPolicy === "error") {
+      throw new UnsupportedToolError(tool.type);
+    }
+    return null;
   }
 
   if (tool.type !== "function") {
+    if (options.unsupportedToolPolicy === "ignore") return null;
     throw new UnsupportedToolError(tool.type ?? "unknown");
   }
 

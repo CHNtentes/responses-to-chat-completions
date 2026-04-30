@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildResponsesStreamEvents,
+  chatResponseToAssistantMessages,
   convertChatCompletionChunk,
   convertChatCompletionResponse,
   convertResponsesRequest,
@@ -47,7 +48,107 @@ test("converts response message input and function output to chat messages", () 
   ]);
 });
 
-test("converts function tools and rejects built in tools", () => {
+test("converts responses function_call items before tool outputs", () => {
+  const result = convertResponsesRequest({
+    model: "m",
+    input: [
+      {
+        type: "function_call",
+        call_id: "call_00",
+        name: "shell",
+        arguments: "{\"cmd\":\"dir\"}"
+      },
+      {
+        type: "function_call",
+        call_id: "call_01",
+        name: "read_file",
+        arguments: "{\"path\":\"README.md\"}"
+      },
+      {
+        type: "function_call_output",
+        call_id: "call_00",
+        output: "listing"
+      },
+      {
+        type: "function_call_output",
+        call_id: "call_01",
+        output: "content"
+      }
+    ]
+  });
+
+  assert.deepEqual(result.chatRequest.messages, [
+    {
+      role: "assistant",
+      content: "",
+      tool_calls: [
+        {
+          id: "call_00",
+          type: "function",
+          function: { name: "shell", arguments: "{\"cmd\":\"dir\"}" }
+        },
+        {
+          id: "call_01",
+          type: "function",
+          function: { name: "read_file", arguments: "{\"path\":\"README.md\"}" }
+        }
+      ]
+    },
+    { role: "tool", tool_call_id: "call_00", content: "listing" },
+    { role: "tool", tool_call_id: "call_01", content: "content" }
+  ]);
+});
+
+test("restores reasoning_content for responses function_call history", () => {
+  const result = convertResponsesRequest(
+    {
+      model: "m",
+      input: [
+        {
+          type: "function_call",
+          call_id: "call_00",
+          name: "shell",
+          arguments: "{\"cmd\":\"dir\"}"
+        },
+        {
+          type: "function_call_output",
+          call_id: "call_00",
+          output: "listing"
+        }
+      ]
+    },
+    {
+      reasoningContentByToolCallId: new Map([["call_00", "我需要先查看目录。"]])
+    }
+  );
+
+  assert.equal(result.chatRequest.messages[0].reasoning_content, "我需要先查看目录。");
+});
+
+test("preserves reasoning_content from chat responses in assistant history", () => {
+  const messages = chatResponseToAssistantMessages({
+    choices: [
+      {
+        message: {
+          role: "assistant",
+          content: "",
+          reasoning_content: "我需要调用工具。",
+          tool_calls: [
+            {
+              id: "call_1",
+              type: "function",
+              function: { name: "shell", arguments: "{\"cmd\":\"dir\"}" }
+            }
+          ]
+        }
+      }
+    ]
+  });
+
+  assert.equal(messages[0].reasoning_content, "我需要调用工具。");
+});
+
+test("converts function tools and ignores built in tools by default", () => {
   const result = convertResponsesRequest({
     model: "m",
     input: "hi",
@@ -72,13 +173,26 @@ test("converts function tools and rejects built in tools", () => {
     }
   ]);
 
+  const ignored = convertResponsesRequest({
+    model: "m",
+    input: "hi",
+    tools: [{ type: "web_search" }]
+  });
+
+  assert.equal(ignored.chatRequest.tools, undefined);
+});
+
+test("rejects built in tools in strict mode", () => {
   assert.throws(
     () =>
-      convertResponsesRequest({
-        model: "m",
-        input: "hi",
-        tools: [{ type: "web_search_preview" }]
-      }),
+      convertResponsesRequest(
+        {
+          model: "m",
+          input: "hi",
+          tools: [{ type: "web_search" }]
+        },
+        { unsupportedToolPolicy: "error" }
+      ),
     UnsupportedToolError
   );
 });
