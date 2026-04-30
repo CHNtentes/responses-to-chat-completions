@@ -1,0 +1,13 @@
+{
+  "name": "responses-to-chat-completions",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node src/adapter.test.js && node src/server.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
