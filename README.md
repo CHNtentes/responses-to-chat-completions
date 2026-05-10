@@ -10,9 +10,11 @@
 - 支持 `GET /v1/models`
 - 支持非流式文本响应
 - 支持 Chat Completions SSE 到 Responses SSE 的基础转换
+- 支持 Chat Completions 流式 function tool call delta 到 Responses function call 事件的基础拼接
 - 支持 `instructions` + `input` 到 `messages` 的转换
 - 支持普通 function tool 的 schema 转换
 - 支持 `previous_response_id` 的内存历史串联
+- 支持可选文件持久化历史，避免单实例服务重启后丢失 `previous_response_id`
 - 默认忽略无法转换的 Responses 内置工具，例如 `web_search`、`file_search`、`computer_use`、`code_interpreter`、`image_generation`、`mcp`
 
 ## 要求
@@ -34,11 +36,16 @@
 | `UPSTREAM_CHAT_COMPLETIONS_URL` | 空 | 上游完整 Chat Completions URL；设置后优先于 `UPSTREAM_BASE_URL` |
 | `UPSTREAM_PROXY_URL` | 空 | 访问上游时使用的 HTTP 代理，例如 `http://127.0.0.1:7890` |
 | `UPSTREAM_API_KEY` | 空 | 上游 Bearer token |
+| `CLIENT_API_KEY` | 空 | 客户端访问本代理时需要的 Bearer token；为空则不校验客户端 key |
 | `DEFAULT_MODEL` | 空 | 请求未传 model 时使用的模型 |
 | `MODEL_MAP` | 空 | 模型名映射，支持 JSON 或 `from=to,from2=to2` |
 | `UNSUPPORTED_TOOL_POLICY` | `ignore` | 内置工具处理策略；`ignore` 为过滤，`error` 为直接报错 |
 | `UPSTREAM_TIMEOUT_MS` | `30000` | 连接上游和等待响应的超时时间，单位毫秒 |
 | `UPSTREAM_STREAMING` | `true` | 是否对上游使用流式请求；设为 `false` 时下游仍返回 SSE，但上游走非流式 |
+| `DEBUG_UPSTREAM_BODY` | `false` | 是否打印上游原始响应体调试日志；生产环境建议保持 `false` |
+| `HISTORY_STORE` | `memory` | 历史存储方式；`memory` 为进程内存，`file` 为 JSON 文件 |
+| `HISTORY_FILE_PATH` | `.data/history.json` | `HISTORY_STORE=file` 时使用的历史文件路径 |
+| `HISTORY_MAX_RESPONSES` | `200` | 文件历史最多保存的 response 数量，超过后删除最旧记录 |
 
 `MODEL_MAP` 示例：
 
@@ -69,10 +76,10 @@ npm.cmd start
 $env:UPSTREAM_CHAT_COMPLETIONS_URL='https://api.deepseek.com/chat/completions'
 $env:UPSTREAM_PROXY_URL='http://proxysh.zte.com.cn:80'
 $env:UPSTREAM_API_KEY=$env:DEEPSEEK_API_KEY
+$env:CLIENT_API_KEY='your-client-key'
 $env:DEFAULT_MODEL='deepseek-v4-pro'
 $env:UPSTREAM_TIMEOUT_MS='60000'
 $env:UPSTREAM_STREAMING='false'
-$env:DEBUG_UPSTREAM_BODY='true'
 npm.cmd start
 ```
 
@@ -96,7 +103,67 @@ http://127.0.0.1:8688/v1/responses
 http://127.0.0.1:8688/v1
 ```
 
-API key 可以填任意非空值；代理不会校验客户端传入的 key，只会用 `UPSTREAM_API_KEY` 调上游。
+如果没有设置 `CLIENT_API_KEY`，API key 可以填任意非空值；代理只会用 `UPSTREAM_API_KEY` 调上游。
+
+如果设置了 `CLIENT_API_KEY`，Codex 传给本代理的 API key 必须等于 `CLIENT_API_KEY`。此时不要把上游真实 key 配给 Codex 客户端，上游真实 key 只放在代理进程的 `UPSTREAM_API_KEY`。
+
+## Docker 部署
+
+Ubuntu 服务器上建议使用 Docker Compose。先准备 `.env`：
+
+```bash
+cp .env.example .env
+```
+
+DeepSeek 示例：
+
+```dotenv
+PORT=8688
+HOST=0.0.0.0
+UPSTREAM_CHAT_COMPLETIONS_URL=https://api.deepseek.com/chat/completions
+UPSTREAM_PROXY_URL=
+UPSTREAM_API_KEY=your-deepseek-key
+CLIENT_API_KEY=your-client-key
+DEFAULT_MODEL=deepseek-v4-pro
+UPSTREAM_TIMEOUT_MS=60000
+UPSTREAM_STREAMING=false
+DEBUG_UPSTREAM_BODY=false
+HISTORY_STORE=file
+HISTORY_FILE_PATH=/app/.data/history.json
+HISTORY_MAX_RESPONSES=200
+```
+
+启动：
+
+```bash
+docker compose up -d --build
+```
+
+Compose 默认挂载名为 `responses-history` 的 Docker volume 到 `/app/.data`。只有设置 `HISTORY_STORE=file` 时才会写入历史文件；默认 `memory` 模式不会持久化历史。
+
+查看日志和健康状态：
+
+```bash
+docker logs -f responses-proxy
+curl http://127.0.0.1:8688/health
+docker compose ps
+```
+
+停止：
+
+```bash
+docker compose down
+```
+
+服务器防火墙只需要放通 Codex 客户端能访问到的端口，例如 `8688`。如果服务暴露到非本机网络，建议务必设置 `CLIENT_API_KEY`，并优先放在内网、VPN 或反向代理后面。
+
+Codex 连接远端 Docker 服务时，base URL 改成：
+
+```text
+http://服务器IP:8688/v1
+```
+
+如果配置了 `CLIENT_API_KEY`，Codex 的 `env_key` 应指向客户端访问代理用的 key，而不是 `UPSTREAM_API_KEY`。
 
 ## 测试
 
@@ -155,6 +222,7 @@ curl.exe -v `
 ## 已知限制
 
 - 没有实现完整 Responses API，只实现 Codex/agent 适配所需的核心兼容层。
-- `previous_response_id` 使用进程内内存保存，服务重启后历史会丢失。
-- 流式 tool call delta 目前只保留文本 delta；复杂工具调用流式拼接需要后续增强。
+- `HISTORY_STORE=memory` 时，`previous_response_id` 使用进程内内存保存，服务重启后历史会丢失。
+- `HISTORY_STORE=file` 适合单实例部署；不适合多个代理进程同时写同一个 JSON 历史文件。
+- 流式 tool call delta 支持基础 function call 拼接；复杂多模态或非 function 工具流式内容仍未完整实现。
 - 内置工具不会被模拟执行，默认会被过滤掉；如果设置 `UNSUPPORTED_TOOL_POLICY=error`，收到后会返回 `unsupported_tool` 错误。

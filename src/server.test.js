@@ -52,6 +52,61 @@ test("proxies non-streaming responses requests to chat completions upstream", as
   await close(upstream);
 });
 
+test("rejects requests when CLIENT_API_KEY is configured and missing", async () => {
+  const proxy = createServer({
+    clientApiKey: "client-secret",
+    logger: silentLogger
+  });
+  await listen(proxy);
+
+  const response = await fetch(`http://127.0.0.1:${proxy.address().port}/v1/responses`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ model: "m", input: "hi" })
+  });
+  const payload = await response.json();
+
+  assert.equal(response.status, 401);
+  assert.equal(payload.error.type, "unauthorized");
+
+  await close(proxy);
+});
+
+test("accepts requests when CLIENT_API_KEY bearer token matches", async () => {
+  const upstream = http.createServer(async (req, res) => {
+    await readJson(req);
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(
+      JSON.stringify({
+        model: "m",
+        choices: [{ message: { role: "assistant", content: "ok" } }]
+      })
+    );
+  });
+
+  await listen(upstream);
+  const proxy = createServer({
+    clientApiKey: "client-secret",
+    upstreamBaseUrl: `http://127.0.0.1:${upstream.address().port}`,
+    logger: silentLogger
+  });
+  await listen(proxy);
+
+  const response = await fetch(`http://127.0.0.1:${proxy.address().port}/v1/responses`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: "Bearer client-secret"
+    },
+    body: JSON.stringify({ model: "m", input: "hi" })
+  });
+
+  assert.equal(response.status, 200);
+
+  await close(proxy);
+  await close(upstream);
+});
+
 test("uses a full upstream chat completions URL when configured", async () => {
   let requestedUrl;
   const upstream = http.createServer(async (req, res) => {
@@ -148,13 +203,173 @@ test("streams chat completion chunks as responses SSE events", async () => {
 
   assert.equal(response.status, 200);
   assert.match(text, /event: response.created/);
+  assert.match(text, /event: response.output_item.added/);
+  assert.match(text, /event: response.content_part.added/);
   assert.match(text, /event: response.output_text.delta/);
   assert.match(text, /"delta":"O"/);
   assert.match(text, /"delta":"K"/);
+  assert.match(text, /event: response.output_text.done/);
+  assert.match(text, /event: response.content_part.done/);
+  assert.match(text, /event: response.output_item.done/);
   assert.match(text, /event: response.completed/);
 
   await close(proxy);
   await close(upstream);
+});
+
+test("assigns stable output indexes when streaming tool calls and text are mixed", async () => {
+  const upstream = http.createServer((req, res) => {
+    res.writeHead(200, { "content-type": "text/event-stream" });
+    writeUpstreamSse(res, {
+      choices: [
+        {
+          delta: {
+            tool_calls: [
+              {
+                index: 0,
+                id: "call_1",
+                type: "function",
+                function: { name: "shell", arguments: "{\"cmd\":\"pwd\"}" }
+              }
+            ]
+          }
+        }
+      ]
+    });
+    writeUpstreamSse(res, {
+      choices: [{ delta: { content: "done" }, finish_reason: "stop" }]
+    });
+    res.end("data: [DONE]\n\n");
+  });
+
+  await listen(upstream);
+  const proxy = createServer({
+    upstreamBaseUrl: `http://127.0.0.1:${upstream.address().port}`,
+    logger: silentLogger
+  });
+  await listen(proxy);
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${proxy.address().port}/v1/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "m", input: "run command", stream: true })
+    });
+    const text = await response.text();
+    const completed = parseSseEvent(text, "response.completed");
+
+    assert.equal(response.status, 200);
+    assert.equal(parseSseEvent(text, "response.output_item.added", 0).output_index, 0);
+    assert.equal(parseSseEvent(text, "response.output_item.added", 1).output_index, 1);
+    assert.equal(parseSseEvent(text, "response.output_text.delta").output_index, 1);
+    assert.equal(parseSseEvent(text, "response.output_text.done").output_index, 1);
+    assert.deepEqual(
+      completed.response.output.map((item) => item.type),
+      ["function_call", "message"]
+    );
+  } finally {
+    await close(proxy);
+    await close(upstream);
+  }
+});
+
+test("streams chat completion tool call chunks as responses function call events", async () => {
+  const capturedRequests = [];
+  const upstream = http.createServer(async (req, res) => {
+    capturedRequests.push(await readJson(req));
+    res.writeHead(200, { "content-type": "text/event-stream" });
+
+    if (capturedRequests.length === 1) {
+      writeUpstreamSse(res, {
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: "call_1",
+                  type: "function",
+                  function: { name: "shell", arguments: "{\"cmd\":\"di" }
+                }
+              ]
+            }
+          }
+        ]
+      });
+      writeUpstreamSse(res, {
+        choices: [
+          {
+            delta: {
+              tool_calls: [{ index: 0, function: { arguments: "r\"}" } }]
+            },
+            finish_reason: "tool_calls"
+          }
+        ]
+      });
+      res.end("data: [DONE]\n\n");
+      return;
+    }
+
+    res.write('data: {"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}\n\n');
+    res.end("data: [DONE]\n\n");
+  });
+
+  await listen(upstream);
+  const proxy = createServer({
+    upstreamBaseUrl: `http://127.0.0.1:${upstream.address().port}`,
+    logger: silentLogger
+  });
+  await listen(proxy);
+
+  try {
+    const first = await fetch(`http://127.0.0.1:${proxy.address().port}/v1/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "m", input: "list files", stream: true })
+    });
+    const firstText = await first.text();
+    const firstCompleted = parseSseEvent(firstText, "response.completed");
+
+    assert.equal(first.status, 200);
+    assert.match(firstText, /event: response.output_item.added/);
+    assert.match(firstText, /event: response.function_call_arguments.delta/);
+    assert.match(firstText, /event: response.function_call_arguments.done/);
+    assert.match(firstText, /event: response.output_item.done/);
+    assert.equal(firstCompleted.response.output[0].type, "function_call");
+    assert.equal(firstCompleted.response.output[0].call_id, "call_1");
+    assert.equal(firstCompleted.response.output[0].name, "shell");
+    assert.equal(firstCompleted.response.output[0].arguments, "{\"cmd\":\"dir\"}");
+
+    await fetch(`http://127.0.0.1:${proxy.address().port}/v1/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "m",
+        previous_response_id: firstCompleted.response.id,
+        input: [{ type: "function_call_output", call_id: "call_1", output: "file.txt" }],
+        stream: true
+      })
+    });
+
+    assert.deepEqual(capturedRequests[1].messages, [
+      { role: "user", content: "list files" },
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [
+          {
+            id: "call_1",
+            type: "function",
+            function: { name: "shell", arguments: "{\"cmd\":\"dir\"}" }
+          }
+        ]
+      },
+      { role: "tool", tool_call_id: "call_1", content: "file.txt" }
+    ]);
+  } finally {
+    await close(proxy);
+    await close(upstream);
+  }
 });
 
 test("can answer streaming responses from a non-streaming upstream request", async () => {
@@ -460,6 +675,97 @@ test("stores assistant tool calls before later tool output messages", async () =
   await close(upstream);
 });
 
+test("drops unmatched assistant tool calls when Codex sends partial tool outputs", async () => {
+  const capturedRequests = [];
+  const upstream = http.createServer(async (req, res) => {
+    const body = await readJson(req);
+    capturedRequests.push(body);
+    res.writeHead(200, { "content-type": "application/json" });
+
+    if (capturedRequests.length === 1) {
+      res.end(
+        JSON.stringify({
+          model: "m",
+          choices: [
+            {
+              message: {
+                role: "assistant",
+                tool_calls: [
+                  {
+                    id: "call_1",
+                    type: "function",
+                    function: { name: "shell", arguments: "{\"cmd\":\"dir\"}" }
+                  },
+                  {
+                    id: "call_2",
+                    type: "function",
+                    function: { name: "read", arguments: "{\"path\":\"README.md\"}" }
+                  }
+                ]
+              },
+              finish_reason: "tool_calls"
+            }
+          ]
+        })
+      );
+      return;
+    }
+
+    res.end(
+      JSON.stringify({
+        model: "m",
+        choices: [{ message: { role: "assistant", content: "done" } }]
+      })
+    );
+  });
+
+  await listen(upstream);
+  const proxy = createServer({
+    upstreamBaseUrl: `http://127.0.0.1:${upstream.address().port}`,
+    upstreamStreaming: false,
+    logger: silentLogger
+  });
+  await listen(proxy);
+
+  const first = await fetch(`http://127.0.0.1:${proxy.address().port}/v1/responses`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ model: "m", input: "inspect files", stream: true })
+  });
+  const firstText = await first.text();
+  const firstCompleted = parseSseEvent(firstText, "response.completed");
+
+  await fetch(`http://127.0.0.1:${proxy.address().port}/v1/responses`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      model: "m",
+      previous_response_id: firstCompleted.response.id,
+      input: [{ type: "function_call_output", call_id: "call_1", output: "file.txt" }],
+      stream: true
+    })
+  });
+
+  assert.deepEqual(capturedRequests[1].messages, [
+    { role: "user", content: "inspect files" },
+    {
+      role: "assistant",
+      content: "",
+      tool_calls: [
+        {
+          id: "call_1",
+          type: "function",
+          function: { name: "shell", arguments: "{\"cmd\":\"dir\"}" }
+        }
+      ]
+    },
+    { role: "tool", tool_call_id: "call_1", content: "file.txt" }
+  ]);
+
+  await close(proxy);
+  await close(upstream);
+});
+
 test("restores DeepSeek reasoning_content when Codex sends full function call history in input", async () => {
   const capturedRequests = [];
   const upstream = http.createServer(async (req, res) => {
@@ -553,10 +859,15 @@ async function readJson(req) {
   return JSON.parse(body);
 }
 
-function parseSseEvent(text, eventName) {
+function parseSseEvent(text, eventName, occurrence = 0) {
   const frames = text.split("\n\n");
+  let seen = 0;
   for (const frame of frames) {
     if (!frame.includes(`event: ${eventName}`)) continue;
+    if (seen !== occurrence) {
+      seen += 1;
+      continue;
+    }
     const data = frame
       .split("\n")
       .find((line) => line.startsWith("data: "))
@@ -564,4 +875,8 @@ function parseSseEvent(text, eventName) {
     if (data) return JSON.parse(data);
   }
   throw new Error(`missing event ${eventName}`);
+}
+
+function writeUpstreamSse(res, payload) {
+  res.write(`data: ${JSON.stringify(payload)}\n\n`);
 }

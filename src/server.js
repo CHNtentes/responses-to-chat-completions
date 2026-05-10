@@ -5,10 +5,13 @@ import {
   convertChatCompletionChunk,
   convertChatCompletionResponse,
   convertResponsesRequest,
+  createToolCallAccumulator,
   chatResponseToAssistantMessages,
   UnsupportedToolError
 } from "./adapter.js";
 import { loadConfig, resolveChatCompletionsUrl } from "./config.js";
+import { createHistoryStore } from "./history-store.js";
+import { readSseData, writeSse as writeRawSse } from "./sse.js";
 import { requestUpstream } from "./upstream-client.js";
 
 const config = loadConfig();
@@ -17,15 +20,24 @@ let nextSequenceNumber = 0;
 export function createServer(options = {}) {
   const cfg = { ...config, ...options };
   const logger = cfg.logger ?? console;
-  const history = new Map();
-  const reasoningContentByToolCallId = new Map();
-  cfg.reasoningContentByToolCallId = reasoningContentByToolCallId;
+  const historyStorePromise = cfg.historyStore
+    ? Promise.resolve(cfg.historyStore)
+    : createHistoryStore(cfg);
 
   return http.createServer(async (req, res) => {
     const requestId = makeRequestId();
     try {
       if (req.method === "GET" && req.url === "/health") {
         return sendJson(res, 200, { status: "ok" });
+      }
+
+      if (isProtectedRoute(req) && !isAuthorized(req, cfg.clientApiKey)) {
+        return sendJson(res, 401, {
+          error: {
+            message: "Unauthorized",
+            type: "unauthorized"
+          }
+        });
       }
 
       if (req.method === "GET" && req.url === "/v1/models") {
@@ -36,6 +48,7 @@ export function createServer(options = {}) {
       }
 
       if (req.method === "POST" && req.url === "/v1/responses") {
+        const historyStore = await historyStorePromise;
         const body = await readJson(req);
         log(logger, "log", {
           event: "responses.request.received",
@@ -52,13 +65,13 @@ export function createServer(options = {}) {
         });
         if (cfg.defaultModel && !body.model) body.model = cfg.defaultModel;
         const previousMessages = body.previous_response_id
-          ? (history.get(body.previous_response_id) ?? [])
+          ? await historyStore.get(body.previous_response_id)
           : [];
         const { chatRequest } = convertResponsesRequest(body, {
           modelMap: cfg.modelMap,
           previousMessages,
           unsupportedToolPolicy: cfg.unsupportedToolPolicy,
-          reasoningContentByToolCallId
+          reasoningContentByToolCallId: historyStore.reasoningContentByToolCallId
         });
         log(logger, "log", {
           event: "chat.request.messages",
@@ -71,12 +84,12 @@ export function createServer(options = {}) {
 
         if (body.stream) {
           if (!cfg.upstreamStreaming) {
-            return proxyBufferedStreamingResponse(res, cfg, chatRequest, history, logger, requestId);
+            return proxyBufferedStreamingResponse(res, cfg, chatRequest, historyStore, logger, requestId);
           }
-          return proxyStreamingResponse(res, cfg, chatRequest, history, logger, requestId);
+          return proxyStreamingResponse(res, cfg, chatRequest, historyStore, logger, requestId);
         }
 
-        return proxyJsonResponse(res, cfg, chatRequest, history, logger, requestId);
+        return proxyJsonResponse(res, cfg, chatRequest, historyStore, logger, requestId);
       }
 
       sendJson(res, 404, { error: { message: "Not found", type: "not_found" } });
@@ -92,7 +105,7 @@ export function createServer(options = {}) {
   });
 }
 
-async function proxyBufferedStreamingResponse(res, cfg, chatRequest, history, logger, requestId) {
+async function proxyBufferedStreamingResponse(res, cfg, chatRequest, historyStore, logger, requestId) {
   attachDownstreamLogs(res, logger, requestId, "buffered_stream");
   const upstreamRequest = { ...chatRequest, stream: false };
   delete upstreamRequest.stream_options;
@@ -128,8 +141,8 @@ async function proxyBufferedStreamingResponse(res, cfg, chatRequest, history, lo
   }
 
   const responsePayload = convertChatCompletionResponse(payload, { model: chatRequest.model });
-  rememberReasoningContent(payload, cfg.reasoningContentByToolCallId);
-  history.set(responsePayload.id, [
+  await rememberReasoningContent(payload, historyStore);
+  await historyStore.set(responsePayload.id, [
     ...chatRequest.messages,
     ...chatResponseToAssistantMessages(payload)
   ]);
@@ -240,7 +253,7 @@ async function proxyBufferedStreamingResponse(res, cfg, chatRequest, history, lo
   res.end("data: [DONE]\n\n");
 }
 
-async function proxyJsonResponse(res, cfg, chatRequest, history, logger, requestId) {
+async function proxyJsonResponse(res, cfg, chatRequest, historyStore, logger, requestId) {
   const upstream = await fetchUpstream(cfg, chatRequest, logger, requestId);
   if (upstream.error) {
     return sendUpstreamFetchError(res, upstream.error, upstream.url);
@@ -273,15 +286,15 @@ async function proxyJsonResponse(res, cfg, chatRequest, history, logger, request
   }
 
   const responsesPayload = convertChatCompletionResponse(payload, { model: chatRequest.model });
-  rememberReasoningContent(payload, cfg.reasoningContentByToolCallId);
-  history.set(responsesPayload.id, [
+  await rememberReasoningContent(payload, historyStore);
+  await historyStore.set(responsesPayload.id, [
     ...chatRequest.messages,
     ...chatResponseToAssistantMessages(payload)
   ]);
   sendJson(res, 200, responsesPayload);
 }
 
-async function proxyStreamingResponse(res, cfg, chatRequest, history, logger, requestId) {
+async function proxyStreamingResponse(res, cfg, chatRequest, historyStore, logger, requestId) {
   attachDownstreamLogs(res, logger, requestId, "stream");
   const responseId = makeResponseId();
   const upstream = await fetchUpstream(cfg, chatRequest, logger, requestId);
@@ -314,6 +327,12 @@ async function proxyStreamingResponse(res, cfg, chatRequest, history, logger, re
 
   let outputText = "";
   let usage = null;
+  const toolCallAccumulator = createToolCallAccumulator();
+  const toolCallOutputItemsById = new Map();
+  const toolCallOutputIndexesById = new Map();
+  let textOutputIndex = null;
+  let textMessageId = "";
+  let nextOutputIndex = 0;
 
   try {
     for await (const data of readSseData(upstream.body)) {
@@ -323,11 +342,63 @@ async function proxyStreamingResponse(res, cfg, chatRequest, history, logger, re
       const converted = convertChatCompletionChunk(chunk);
       if (converted.usage) usage = converted.usage;
 
+      for (const change of toolCallAccumulator.addDelta(converted.toolCalls)) {
+        const item = toolCallOutputItem(change.toolCall);
+        toolCallOutputItemsById.set(change.toolCall.id, item);
+
+        if (change.started) {
+          const outputIndex = nextOutputIndex++;
+          toolCallOutputIndexesById.set(change.toolCall.id, outputIndex);
+          writeSse(res, "response.output_item.added", {
+            response_id: responseId,
+            output_index: outputIndex,
+            item: { ...item, status: "in_progress" }
+          });
+        }
+
+        if (change.argumentsDelta) {
+          writeSse(res, "response.function_call_arguments.delta", {
+            response_id: responseId,
+            item_id: item.id,
+            output_index: toolCallOutputIndexesById.get(change.toolCall.id),
+            delta: change.argumentsDelta
+          });
+        }
+      }
+
       if (converted.content) {
+        if (textOutputIndex == null) {
+          textOutputIndex = nextOutputIndex++;
+          textMessageId = `msg_${Date.now()}`;
+          writeSse(res, "response.output_item.added", {
+            response_id: responseId,
+            output_index: textOutputIndex,
+            item: {
+              id: textMessageId,
+              type: "message",
+              status: "in_progress",
+              role: "assistant",
+              content: []
+            }
+          });
+          writeSse(res, "response.content_part.added", {
+            response_id: responseId,
+            item_id: textMessageId,
+            output_index: textOutputIndex,
+            content_index: 0,
+            part: {
+              type: "output_text",
+              text: "",
+              annotations: []
+            }
+          });
+        }
+
         outputText += converted.content;
         writeSse(res, "response.output_text.delta", {
           response_id: responseId,
-          output_index: 0,
+          item_id: textMessageId,
+          output_index: textOutputIndex,
           content_index: 0,
           delta: converted.content
         });
@@ -355,6 +426,63 @@ async function proxyStreamingResponse(res, cfg, chatRequest, history, logger, re
     return res.end("data: [DONE]\n\n");
   }
 
+  const completedToolCalls = toolCallAccumulator.completedToolCalls();
+  const outputByIndex = new Map();
+  for (const toolCall of completedToolCalls) {
+    const item = toolCallOutputItemsById.get(toolCall.id) ?? toolCallOutputItem(toolCall);
+    const completedItem = { ...item, arguments: toolCall.function?.arguments ?? "{}" };
+    const outputIndex = toolCallOutputIndexesById.get(toolCall.id);
+    outputByIndex.set(outputIndex, completedItem);
+
+    writeSse(res, "response.function_call_arguments.done", {
+      response_id: responseId,
+      item_id: completedItem.id,
+      output_index: outputIndex,
+      arguments: completedItem.arguments
+    });
+    writeSse(res, "response.output_item.done", {
+      response_id: responseId,
+      output_index: outputIndex,
+      item: completedItem
+    });
+  }
+
+  const messageOutput = outputText
+    ? [
+        {
+          id: `msg_${Date.now()}`,
+          type: "message",
+          status: "completed",
+          role: "assistant",
+          content: [{ type: "output_text", text: outputText, annotations: [] }]
+        }
+      ]
+    : [];
+  if (outputText) {
+    const completedMessage = messageOutput[0];
+    completedMessage.id = textMessageId;
+    outputByIndex.set(textOutputIndex, completedMessage);
+    writeSse(res, "response.output_text.done", {
+      response_id: responseId,
+      item_id: textMessageId,
+      output_index: textOutputIndex,
+      content_index: 0,
+      text: outputText
+    });
+    writeSse(res, "response.content_part.done", {
+      response_id: responseId,
+      item_id: textMessageId,
+      output_index: textOutputIndex,
+      content_index: 0,
+      part: completedMessage.content[0]
+    });
+    writeSse(res, "response.output_item.done", {
+      response_id: responseId,
+      output_index: textOutputIndex,
+      item: completedMessage
+    });
+  }
+
   writeSse(res, "response.completed", {
     response: {
       id: responseId,
@@ -362,17 +490,9 @@ async function proxyStreamingResponse(res, cfg, chatRequest, history, logger, re
       created_at: Math.floor(Date.now() / 1000),
       status: "completed",
       model: chatRequest.model,
-      output: outputText
-        ? [
-            {
-              id: `msg_${Date.now()}`,
-              type: "message",
-              status: "completed",
-              role: "assistant",
-              content: [{ type: "output_text", text: outputText, annotations: [] }]
-            }
-          ]
-        : [],
+      output: [...outputByIndex.entries()]
+        .sort(([left], [right]) => left - right)
+        .map(([, item]) => item),
       output_text: outputText,
       usage: usage
         ? {
@@ -380,14 +500,30 @@ async function proxyStreamingResponse(res, cfg, chatRequest, history, logger, re
             output_tokens: usage.completion_tokens ?? 0,
             total_tokens: usage.total_tokens ?? 0
           }
-        : null
+      : null
     }
   });
-  history.set(responseId, [
+  const assistantMessage = { role: "assistant", content: outputText };
+  if (completedToolCalls.length > 0) {
+    assistantMessage.content = "";
+    assistantMessage.tool_calls = completedToolCalls;
+  }
+  await historyStore.set(responseId, [
     ...chatRequest.messages,
-    { role: "assistant", content: outputText }
+    assistantMessage
   ]);
   res.end("data: [DONE]\n\n");
+}
+
+function toolCallOutputItem(toolCall) {
+  return {
+    id: `fc_${toolCall.id}`,
+    type: "function_call",
+    status: "completed",
+    call_id: toolCall.id,
+    name: toolCall.function?.name ?? "",
+    arguments: toolCall.function?.arguments ?? "{}"
+  };
 }
 
 async function fetchUpstream(cfg, chatRequest, logger, requestId) {
@@ -553,13 +689,13 @@ function attachDownstreamLogs(res, logger, requestId, mode) {
   });
 }
 
-function rememberReasoningContent(payload, reasoningContentByToolCallId) {
+async function rememberReasoningContent(payload, historyStore) {
   const message = payload?.choices?.[0]?.message;
   const reasoningContent = message?.reasoning_content;
   if (!reasoningContent || !Array.isArray(message.tool_calls)) return;
 
   for (const toolCall of message.tool_calls) {
-    if (toolCall.id) reasoningContentByToolCallId.set(toolCall.id, reasoningContent);
+    if (toolCall.id) await historyStore.setReasoningContent(toolCall.id, reasoningContent);
   }
 }
 
@@ -627,30 +763,12 @@ function log(logger, level, entry) {
   target.call(logger, entry);
 }
 
-async function* readSseData(stream) {
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  for await (const chunk of stream) {
-    buffer += decoder.decode(chunk, { stream: true });
-    const frames = buffer.split("\n\n");
-    buffer = frames.pop() ?? "";
-
-    for (const frame of frames) {
-      for (const line of frame.split("\n")) {
-        if (line.startsWith("data:")) yield line.slice(5).trimStart();
-      }
-    }
-  }
-}
-
 function writeSse(res, event, data) {
   const payload =
     data && typeof data === "object" && !Array.isArray(data)
       ? { type: event, sequence_number: nextSequenceNumber++, ...data }
       : data;
-  res.write(`event: ${event}\n`);
-  res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  writeRawSse(res, event, payload);
 }
 
 async function readJson(req) {
@@ -663,6 +781,17 @@ async function readJson(req) {
 function sendJson(res, statusCode, payload) {
   res.writeHead(statusCode, { "content-type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(payload));
+}
+
+function isProtectedRoute(req) {
+  return req.url === "/v1/models" || req.url === "/v1/responses";
+}
+
+function isAuthorized(req, clientApiKey) {
+  if (!clientApiKey) return true;
+  const authorization = req.headers.authorization ?? "";
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
+  return match?.[1] === clientApiKey;
 }
 
 function makeResponseId() {

@@ -1,0 +1,43 @@
+services:
+  responses-proxy:
+    build: .
+    image: responses-to-chat-completions:local
+    container_name: responses-proxy
+    restart: unless-stopped
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8688
+      UPSTREAM_BASE_URL: ${UPSTREAM_BASE_URL:-http://127.0.0.1:8000}
+      UPSTREAM_CHAT_COMPLETIONS_URL: ${UPSTREAM_CHAT_COMPLETIONS_URL:-}
+      UPSTREAM_PROXY_URL: ${UPSTREAM_PROXY_URL:-}
+      UPSTREAM_API_KEY: ${UPSTREAM_API_KEY:-}
+      CLIENT_API_KEY: ${CLIENT_API_KEY:-}
+      DEFAULT_MODEL: ${DEFAULT_MODEL:-}
+      MODEL_MAP: ${MODEL_MAP:-}
+      UNSUPPORTED_TOOL_POLICY: ${UNSUPPORTED_TOOL_POLICY:-ignore}
+      UPSTREAM_TIMEOUT_MS: ${UPSTREAM_TIMEOUT_MS:-30000}
+      UPSTREAM_STREAMING: ${UPSTREAM_STREAMING:-true}
+      DEBUG_UPSTREAM_BODY: ${DEBUG_UPSTREAM_BODY:-false}
+      HISTORY_STORE: ${HISTORY_STORE:-memory}
+      HISTORY_FILE_PATH: ${HISTORY_FILE_PATH:-/app/.data/history.json}
+      HISTORY_MAX_RESPONSES: ${HISTORY_MAX_RESPONSES:-200}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,::1}
+    ports:
+      - "${PORT:-8688}:8688"
+    volumes:
+      - responses-history:/app/.data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:' + (process.env.PORT || 8688) + '/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  responses-history:

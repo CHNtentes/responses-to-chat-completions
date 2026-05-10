@@ -7,6 +7,7 @@ import {
   convertChatCompletionChunk,
   convertChatCompletionResponse,
   convertResponsesRequest,
+  createToolCallAccumulator,
   UnsupportedToolError
 } from "./adapter.js";
 
@@ -26,7 +27,7 @@ test("converts instructions and string input to chat messages", () => {
   assert.equal(result.chatRequest.temperature, 0.2);
 });
 
-test("converts response message input and function output to chat messages", () => {
+test("converts response message input and drops orphan function output", () => {
   const result = convertResponsesRequest({
     model: "m",
     input: [
@@ -43,8 +44,55 @@ test("converts response message input and function output to chat messages", () 
   });
 
   assert.deepEqual(result.chatRequest.messages, [
-    { role: "user", content: "运行命令" },
-    { role: "tool", tool_call_id: "call_1", content: "ok" }
+    { role: "user", content: "运行命令" }
+  ]);
+});
+
+test("converts responses image inputs to chat image_url content blocks", () => {
+  const result = convertResponsesRequest({
+    model: "vision-model",
+    input: [
+      {
+        role: "user",
+        content: [
+          { type: "input_text", text: "看这张图" },
+          { type: "input_image", image_url: "data:image/png;base64,abc" },
+          { type: "input_image", image_url: { url: "https://example.test/a.png" } },
+          { type: "input_image", url: "https://example.test/b.png" }
+        ]
+      }
+    ]
+  });
+
+  assert.deepEqual(result.chatRequest.messages, [
+    {
+      role: "user",
+      content: [
+        { type: "text", text: "看这张图" },
+        { type: "image_url", image_url: { url: "data:image/png;base64,abc" } },
+        { type: "image_url", image_url: { url: "https://example.test/a.png" } },
+        { type: "image_url", image_url: { url: "https://example.test/b.png" } }
+      ]
+    }
+  ]);
+});
+
+test("keeps malformed image inputs as text instead of sending empty image urls", () => {
+  const result = convertResponsesRequest({
+    model: "vision-model",
+    input: [
+      {
+        role: "user",
+        content: [{ type: "input_image", file_id: "file_123" }]
+      }
+    ]
+  });
+
+  assert.deepEqual(result.chatRequest.messages, [
+    {
+      role: "user",
+      content: JSON.stringify({ type: "input_image", file_id: "file_123" })
+    }
   ]);
 });
 
@@ -287,4 +335,43 @@ test("converts chat stream chunks to responses text deltas", () => {
   assert.equal(events[2].data.delta, "好");
   assert.equal(events.at(-1).event, "response.completed");
   assert.equal(events.at(-1).data.response.output_text, "你好");
+});
+
+test("accumulates streaming tool call deltas into completed tool calls", () => {
+  const accumulator = createToolCallAccumulator();
+
+  const first = accumulator.addDelta([
+    {
+      index: 0,
+      id: "call_1",
+      type: "function",
+      function: {
+        name: "shell",
+        arguments: "{\"cmd\":\"di"
+      }
+    }
+  ]);
+  const second = accumulator.addDelta([
+    {
+      index: 0,
+      function: {
+        arguments: "r\"}"
+      }
+    }
+  ]);
+
+  assert.equal(first[0].started, true);
+  assert.equal(first[0].argumentsDelta, "{\"cmd\":\"di");
+  assert.equal(second[0].started, false);
+  assert.equal(second[0].argumentsDelta, "r\"}");
+  assert.deepEqual(accumulator.completedToolCalls(), [
+    {
+      id: "call_1",
+      type: "function",
+      function: {
+        name: "shell",
+        arguments: "{\"cmd\":\"dir\"}"
+      }
+    }
+  ]);
 });

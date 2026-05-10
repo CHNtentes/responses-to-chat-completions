@@ -21,13 +21,14 @@ export class UnsupportedToolError extends Error {
 
 export function convertResponsesRequest(body, options = {}) {
   const model = mapModel(body.model, options.modelMap);
-  const messages = [...(options.previousMessages ?? [])];
+  let messages = [...(options.previousMessages ?? [])];
 
   if (body.instructions) {
     messages.push({ role: "system", content: stringifyContent(body.instructions) });
   }
 
   messages.push(...convertInputToMessages(body.input, options));
+  messages = normalizeToolCallTurns(messages);
 
   const chatRequest = copyKnownChatFields(body);
   chatRequest.model = model;
@@ -124,6 +125,56 @@ export function convertChatCompletionChunk(chunk) {
     toolCalls: delta.tool_calls ?? [],
     finishReason: choice.finish_reason ?? null,
     usage: chunk.usage ?? null
+  };
+}
+
+export function createToolCallAccumulator() {
+  const toolCallsByIndex = new Map();
+
+  return {
+    addDelta(toolCallDeltas = []) {
+      const changes = [];
+
+      for (const delta of toolCallDeltas) {
+        const index = delta.index ?? toolCallsByIndex.size;
+        let toolCall = toolCallsByIndex.get(index);
+        const started = !toolCall;
+
+        if (!toolCall) {
+          toolCall = {
+            id: delta.id ?? `call_${index}`,
+            type: delta.type ?? "function",
+            function: {
+              name: "",
+              arguments: ""
+            }
+          };
+          toolCallsByIndex.set(index, toolCall);
+        }
+
+        if (delta.id) toolCall.id = delta.id;
+        if (delta.type) toolCall.type = delta.type;
+        if (delta.function?.name) toolCall.function.name += delta.function.name;
+
+        const argumentsDelta = delta.function?.arguments ?? "";
+        if (argumentsDelta) toolCall.function.arguments += argumentsDelta;
+
+        changes.push({
+          index,
+          started,
+          toolCall: cloneToolCall(toolCall),
+          argumentsDelta
+        });
+      }
+
+      return changes;
+    },
+
+    completedToolCalls() {
+      return [...toolCallsByIndex.entries()]
+        .sort(([left], [right]) => left - right)
+        .map(([, toolCall]) => cloneToolCall(toolCall));
+    }
   };
 }
 
@@ -250,6 +301,54 @@ export function convertInputToMessages(input, options = {}) {
   return messages;
 }
 
+function normalizeToolCallTurns(messages) {
+  const result = [];
+  const consumed = new Set();
+
+  for (let index = 0; index < messages.length; index += 1) {
+    if (consumed.has(index)) continue;
+
+    const message = messages[index];
+    if (message.role !== "assistant" || !Array.isArray(message.tool_calls) || message.tool_calls.length === 0) {
+      if (message.role !== "tool") result.push(message);
+      continue;
+    }
+
+    const toolCallIds = new Set(message.tool_calls.map((toolCall) => toolCall.id).filter(Boolean));
+    const matchingToolMessagesById = new Map();
+
+    for (let nextIndex = index + 1; nextIndex < messages.length; nextIndex += 1) {
+      const nextMessage = messages[nextIndex];
+      if (consumed.has(nextIndex)) continue;
+      if (nextMessage.role !== "tool") continue;
+      if (!toolCallIds.has(nextMessage.tool_call_id)) continue;
+      if (matchingToolMessagesById.has(nextMessage.tool_call_id)) continue;
+
+      matchingToolMessagesById.set(nextMessage.tool_call_id, nextMessage);
+      consumed.add(nextIndex);
+    }
+
+    const matchedToolCalls = message.tool_calls.filter((toolCall) =>
+      matchingToolMessagesById.has(toolCall.id)
+    );
+
+    if (matchedToolCalls.length > 0) {
+      result.push({ ...message, tool_calls: matchedToolCalls });
+      for (const toolCall of matchedToolCalls) {
+        result.push(matchingToolMessagesById.get(toolCall.id));
+      }
+      continue;
+    }
+
+    if (message.content) {
+      const { tool_calls: _toolCalls, ...messageWithoutToolCalls } = message;
+      result.push(messageWithoutToolCalls);
+    }
+  }
+
+  return result;
+}
+
 function findReasoningContentForToolCalls(toolCalls, reasoningContentByToolCallId) {
   if (!reasoningContentByToolCallId) return "";
 
@@ -337,10 +436,15 @@ function normalizeContent(content) {
     if (part.type === "input_text" || part.type === "output_text" || part.type === "text") {
       blocks.push({ type: "text", text: part.text ?? "" });
     } else if (part.type === "input_image") {
-      blocks.push({
-        type: "image_url",
-        image_url: { url: part.image_url ?? part.url ?? "" }
-      });
+      const url = normalizeImageUrl(part);
+      if (url) {
+        blocks.push({
+          type: "image_url",
+          image_url: { url }
+        });
+      } else {
+        blocks.push({ type: "text", text: stringifyContent(part) });
+      }
     } else {
       blocks.push({ type: "text", text: stringifyContent(part) });
     }
@@ -351,6 +455,13 @@ function normalizeContent(content) {
   }
 
   return blocks;
+}
+
+function normalizeImageUrl(part) {
+  if (typeof part.image_url === "string") return part.image_url;
+  if (typeof part.image_url?.url === "string") return part.image_url.url;
+  if (typeof part.url === "string") return part.url;
+  return "";
 }
 
 function stringifyContent(value) {
@@ -378,6 +489,17 @@ function outputText(output) {
     .filter((part) => part.type === "output_text")
     .map((part) => part.text)
     .join("");
+}
+
+function cloneToolCall(toolCall) {
+  return {
+    id: toolCall.id,
+    type: toolCall.type,
+    function: {
+      name: toolCall.function?.name ?? "",
+      arguments: toolCall.function?.arguments ?? ""
+    }
+  };
 }
 
 function convertUsage(usage) {
