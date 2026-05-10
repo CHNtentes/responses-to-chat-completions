@@ -21,14 +21,23 @@ export class UnsupportedToolError extends Error {
 
 export function convertResponsesRequest(body, options = {}) {
   const model = mapModel(body.model, options.modelMap);
-  let messages = [...(options.previousMessages ?? [])];
+  const previousMessages = options.previousMessages ?? [];
+  const currentMessages = [];
 
   if (body.instructions) {
-    messages.push({ role: "system", content: stringifyContent(body.instructions) });
+    currentMessages.push({ role: "system", content: stringifyContent(body.instructions) });
   }
 
-  messages.push(...convertInputToMessages(body.input, options));
-  messages = normalizeToolCallTurns(messages);
+  currentMessages.push(...convertInputToMessages(body.input, options));
+
+  const previousMessagesStartIndex = findToolCallNormalizationStartIndex(previousMessages);
+  const messages = [
+    ...previousMessages.slice(0, previousMessagesStartIndex),
+    ...normalizeToolCallTurns([
+      ...previousMessages.slice(previousMessagesStartIndex),
+      ...currentMessages
+    ])
+  ];
 
   const chatRequest = copyKnownChatFields(body);
   chatRequest.model = model;
@@ -347,6 +356,21 @@ function normalizeToolCallTurns(messages) {
   }
 
   return result;
+}
+
+function findToolCallNormalizationStartIndex(messages) {
+  if (messages.length === 0) return 0;
+
+  const lastMessage = messages[messages.length - 1];
+  if (
+    lastMessage.role === "assistant" &&
+    Array.isArray(lastMessage.tool_calls) &&
+    lastMessage.tool_calls.length > 0
+  ) {
+    return messages.length - 1;
+  }
+
+  return messages.length;
 }
 
 function findReasoningContentForToolCalls(toolCalls, reasoningContentByToolCallId) {

@@ -147,6 +147,55 @@ test("converts responses function_call items before tool outputs", () => {
   ]);
 });
 
+test("only normalizes the trailing open tool call history", () => {
+  const result = convertResponsesRequest(
+    {
+      model: "m",
+      input: [
+        {
+          type: "function_call_output",
+          call_id: "call_1",
+          output: "listing"
+        },
+        { role: "user", content: "next" }
+      ]
+    },
+    {
+      previousMessages: [
+        { role: "user", content: "first" },
+        {
+          role: "assistant",
+          content: "",
+          tool_calls: [
+            {
+              id: "call_1",
+              type: "function",
+              function: { name: "shell", arguments: "{\"cmd\":\"dir\"}" }
+            }
+          ]
+        }
+      ]
+    }
+  );
+
+  assert.deepEqual(result.chatRequest.messages, [
+    { role: "user", content: "first" },
+    {
+      role: "assistant",
+      content: "",
+      tool_calls: [
+        {
+          id: "call_1",
+          type: "function",
+          function: { name: "shell", arguments: "{\"cmd\":\"dir\"}" }
+        }
+      ]
+    },
+    { role: "tool", tool_call_id: "call_1", content: "listing" },
+    { role: "user", content: "next" }
+  ]);
+});
+
 test("restores reasoning_content for responses function_call history", () => {
   const result = convertResponsesRequest(
     {
