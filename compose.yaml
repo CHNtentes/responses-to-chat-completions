@@ -5,7 +5,7 @@ services:
     container_name: responses-proxy
     restart: unless-stopped
     environment:
-      HOST: 0.0.0.0
+      HOST: 127.0.0.1
       PORT: 8688
       UPSTREAM_BASE_URL: ${UPSTREAM_BASE_URL:-http://127.0.0.1:8000}
       UPSTREAM_CHAT_COMPLETIONS_URL: ${UPSTREAM_CHAT_COMPLETIONS_URL:-}
@@ -14,6 +14,8 @@ services:
       CLIENT_API_KEY: ${CLIENT_API_KEY:-}
       DEFAULT_MODEL: ${DEFAULT_MODEL:-}
       MODEL_MAP: ${MODEL_MAP:-}
+      TITLE_MODEL: ${TITLE_MODEL:-gpt-5.4-mini}
+      UPSTREAM_TITLE_MODEL: ${UPSTREAM_TITLE_MODEL:-}
       UNSUPPORTED_TOOL_POLICY: ${UNSUPPORTED_TOOL_POLICY:-ignore}
       UPSTREAM_TIMEOUT_MS: ${UPSTREAM_TIMEOUT_MS:-30000}
       UPSTREAM_STREAMING: ${UPSTREAM_STREAMING:-true}
