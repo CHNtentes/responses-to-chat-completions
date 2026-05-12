@@ -5,7 +5,7 @@ services:
     container_name: responses-proxy
     restart: unless-stopped
     environment:
-      HOST: 127.0.0.1
+      HOST: 0.0.0.0
       PORT: 8688
       UPSTREAM_BASE_URL: ${UPSTREAM_BASE_URL:-http://127.0.0.1:8000}
       UPSTREAM_CHAT_COMPLETIONS_URL: ${UPSTREAM_CHAT_COMPLETIONS_URL:-}
