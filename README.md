@@ -39,6 +39,8 @@
 | `CLIENT_API_KEY` | 空 | 客户端访问本代理时需要的 Bearer token；为空则不校验客户端 key |
 | `DEFAULT_MODEL` | 空 | 请求未传 model 时使用的模型 |
 | `MODEL_MAP` | 空 | 模型名映射，支持 JSON 或 `from=to,from2=to2` |
+| `TITLE_MODEL` | `gpt-5.4-mini` | Codex 用于生成聊天标题的模型名；为空则不启用专用标题模型映射 |
+| `UPSTREAM_TITLE_MODEL` | 空 | 上游实际支持的标题生成模型名；与 `TITLE_MODEL` 同时设置时生效 |
 | `UNSUPPORTED_TOOL_POLICY` | `ignore` | 内置工具处理策略；`ignore` 为过滤，`error` 为直接报错 |
 | `UPSTREAM_TIMEOUT_MS` | `30000` | 连接上游和等待响应的超时时间，单位毫秒 |
 | `UPSTREAM_STREAMING` | `true` | 是否对上游使用流式请求；设为 `false` 时下游仍返回 SSE，但上游走非流式 |
@@ -58,6 +60,15 @@ $env:MODEL_MAP='{"gpt-5.3-codex":"qwen3-coder"}'
 ```powershell
 $env:MODEL_MAP='gpt-5.3-codex=qwen3-coder,gpt-5=deepseek-chat'
 ```
+
+如果上游不支持 Codex 默认的标题生成模型名，可以单独配置标题模型映射：
+
+```powershell
+$env:TITLE_MODEL='gpt-5.4-mini'
+$env:UPSTREAM_TITLE_MODEL='qwen3-coder'
+```
+
+这等价于在 `MODEL_MAP` 中额外加入 `gpt-5.4-mini=qwen3-coder`。
 
 ## 启动
 
@@ -125,6 +136,8 @@ UPSTREAM_PROXY_URL=
 UPSTREAM_API_KEY=your-deepseek-key
 CLIENT_API_KEY=your-client-key
 DEFAULT_MODEL=deepseek-v4-pro
+TITLE_MODEL=gpt-5.4-mini
+UPSTREAM_TITLE_MODEL=deepseek-chat
 UPSTREAM_TIMEOUT_MS=60000
 UPSTREAM_STREAMING=false
 DEBUG_UPSTREAM_BODY=false

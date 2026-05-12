@@ -1,4 +1,7 @@
 export function loadConfig(env = process.env) {
+  const modelMap = parseModelMap(env.MODEL_MAP ?? "");
+  addTitleModelMap(modelMap, env);
+
   return {
     port: parsePort(env.PORT ?? 8688),
     host: env.HOST ?? "127.0.0.1",
@@ -19,7 +22,7 @@ export function loadConfig(env = process.env) {
     historyStoreType: parseEnum("HISTORY_STORE", env.HISTORY_STORE ?? "memory", ["memory", "file"]),
     historyFilePath: env.HISTORY_FILE_PATH ?? ".data/history.json",
     historyMaxResponses: parsePositiveInteger("HISTORY_MAX_RESPONSES", env.HISTORY_MAX_RESPONSES ?? 200),
-    modelMap: parseModelMap(env.MODEL_MAP ?? "")
+    modelMap
   };
 }
 
@@ -48,6 +51,14 @@ export function parseModelMap(value) {
     }
     return result;
   }
+}
+
+function addTitleModelMap(modelMap, env) {
+  const titleModel = env.TITLE_MODEL ?? "";
+  const upstreamTitleModel = env.UPSTREAM_TITLE_MODEL ?? "";
+  if (!titleModel || !upstreamTitleModel) return;
+
+  modelMap[titleModel] = upstreamTitleModel;
 }
 
 function stripTrailingSlash(value) {

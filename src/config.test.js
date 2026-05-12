@@ -19,6 +19,19 @@ test("loads valid numeric and enum config values", () => {
   assert.equal(cfg.unsupportedToolPolicy, "error");
 });
 
+test("adds title model mapping to model map", () => {
+  const cfg = loadConfig({
+    TITLE_MODEL: "gpt-5.4-mini",
+    UPSTREAM_TITLE_MODEL: "qwen3-coder",
+    MODEL_MAP: "gpt-5.3-codex=deepseek-chat"
+  });
+
+  assert.deepEqual(cfg.modelMap, {
+    "gpt-5.3-codex": "deepseek-chat",
+    "gpt-5.4-mini": "qwen3-coder"
+  });
+});
+
 test("rejects invalid numeric config values", () => {
   assert.throws(() => loadConfig({ PORT: "abc" }), /PORT 必须是 1 到 65535 之间的整数/);
   assert.throws(() => loadConfig({ PORT: "70000" }), /PORT 必须是 1 到 65535 之间的整数/);
