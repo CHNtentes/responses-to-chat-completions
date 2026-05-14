@@ -13,6 +13,10 @@ import { loadConfig, reloadConfigFromEnvFile, resolveChatCompletionsUrl } from "
 import { createHistoryStore } from "./history-store.js";
 import { readSseData, writeSse as writeRawSse } from "./sse.js";
 import { requestUpstream } from "./upstream-client.js";
+import { createLogBus, adminRouter } from "./admin.js";
+import { existsSync, copyFileSync } from "node:fs";
+
+const logBus = createLogBus();
 
 let config = loadConfig();
 let nextSequenceNumber = 0;
@@ -27,6 +31,9 @@ export function createServer(options = {}) {
   return http.createServer(async (req, res) => {
     const requestId = makeRequestId();
     try {
+      // --- 管理路由 ---
+      const adminHandler = adminRouter(cfg, logBus);
+      if (adminHandler(req, res)) return;
       // --- 管理接口：热重载配置 ---
       if (req.method === "POST" && req.url === "/admin/reload") {
         return handleReload(req, res, cfg, logger, requestId);
@@ -811,9 +818,10 @@ function log(logger, level, entry) {
   const target = logger[level] ?? logger.log;
   if (logger === console) {
     target.call(logger, JSON.stringify(entry, null, 2));
-    return;
+  } else {
+    target.call(logger, entry);
   }
-  target.call(logger, entry);
+  logBus.publish(level, entry);
 }
 
 function writeSse(res, event, data) {
@@ -837,6 +845,8 @@ function sendJson(res, statusCode, payload) {
 }
 
 function isProtectedRoute(req) {
+  if (req.url.startsWith("/admin")) return false;
+  if (req.url === "/health") return false;
   return req.url === "/v1/models" || req.url === "/v1/responses";
 }
 
@@ -856,9 +866,16 @@ function makeRequestId() {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
-  createServer().listen(config.port, config.host, () => {
-    console.log(`Responses proxy listening on http://${config.host}:${config.port}`);
-    console.log(`Upstream chat completions: ${resolveChatCompletionsUrl(config)}`);
-    console.log(`Upstream proxy: ${getProxyLogValue(config, resolveChatCompletionsUrl(config)) || "(none)"}`);
+  if (!existsSync(".env") && existsSync(".env.example")) {
+    copyFileSync(".env.example", ".env");
+    console.log(".env file created from .env.example");
+    config = loadConfig();
+  }
+  const server = createServer();
+  config._server = server;
+  server.listen(config.port, config.host, () => {
+    logBus.publish("log", { event: "server.start", message: "Listening on http://" + config.host + ":" + config.port, port: config.port, host: config.host });
+    logBus.publish("log", { event: "upstream.url", message: "Upstream: " + resolveChatCompletionsUrl(config), url: resolveChatCompletionsUrl(config) });
+    logBus.publish("log", { event: "upstream.proxy", message: "Proxy: " + (getProxyLogValue(config, resolveChatCompletionsUrl(config)) || "none"), proxy: getProxyLogValue(config, resolveChatCompletionsUrl(config)) || "" });
   });
 }

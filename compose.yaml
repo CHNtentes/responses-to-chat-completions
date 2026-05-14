@@ -27,7 +27,7 @@ services:
     ports:
       - "${PORT:-8688}:8688"
     volumes:
-      - ./.env:/app/.env:ro
+      - ./.env:/app/.env:rw
       - responses-history:/app/.data
     healthcheck:
       test:

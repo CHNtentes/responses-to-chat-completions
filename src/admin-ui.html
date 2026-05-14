@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Respons-Proxy Admin</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #1a1a2e; color: #e0e0e0; min-height: 100vh; }
+#view-login { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
+#view-login h1 { margin-bottom: 24px; font-size: 24px; color: #e0e0e0; }
+#view-login input { width: 300px; padding: 10px 14px; border: 1px solid #333; border-radius: 6px; background: #16213e; color: #e0e0e0; font-size: 14px; margin-bottom: 12px; }
+#view-login input:focus { outline: none; border-color: #4fc3f7; }
+#view-login button { width: 300px; padding: 10px; border: none; border-radius: 6px; background: #4fc3f7; color: #1a1a2e; font-size: 14px; font-weight: 600; cursor: pointer; }
+#view-login button:hover { background: #29b6f6; }
+#login-error { color: #ef5350; margin-bottom: 12px; font-size: 13px; display: none; }
+#view-admin { display: none; }
+header { display: flex; align-items: center; padding: 12px 20px; background: #16213e; border-bottom: 1px solid #333; }
+header h2 { font-size: 16px; flex: 1; }
+#logout-btn { padding: 6px 14px; border: 1px solid #555; border-radius: 4px; background: transparent; color: #aaa; cursor: pointer; font-size: 12px; }
+#logout-btn:hover { border-color: #ef5350; color: #ef5350; }
+.tabs { display: flex; background: #16213e; border-bottom: 1px solid #333; padding: 0 20px; }
+.tab-btn { padding: 10px 20px; border: none; background: transparent; color: #888; cursor: pointer; font-size: 13px; border-bottom: 2px solid transparent; }
+.tab-btn:hover { color: #e0e0e0; }
+.tab-btn.active { color: #4fc3f7; border-bottom-color: #4fc3f7; }
+.tab-panel { display: none; padding: 20px; }
+.tab-panel.active { display: block; }
+#config-form details { margin-bottom: 16px; background: #16213e; border-radius: 8px; overflow: hidden; }
+#config-form summary { padding: 10px 16px; cursor: pointer; font-weight: 600; font-size: 13px; color: #aaa; user-select: none; }
+#config-form summary:hover { color: #e0e0e0; }
+.form-row { display: flex; align-items: center; padding: 6px 16px; }
+.form-row label { width: 200px; font-size: 12px; color: #888; flex-shrink: 0; }
+.form-row input, .form-row select, .form-row textarea { flex: 1; padding: 6px 10px; border: 1px solid #333; border-radius: 4px; background: #1a1a2e; color: #e0e0e0; font-size: 12px; }
+.form-row input:focus, .form-row select:focus, .form-row textarea:focus { outline: none; border-color: #4fc3f7; }
+.form-row textarea { min-height: 60px; resize: vertical; font-family: monospace; }
+.form-row input[type="checkbox"] { flex: none; width: 16px; height: 16px; }
+.save-bar { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
+#save-btn { padding: 8px 24px; border: none; border-radius: 6px; background: #4fc3f7; color: #1a1a2e; font-size: 13px; font-weight: 600; cursor: pointer; }
+#save-btn:hover { background: #29b6f6; }
+#save-msg { font-size: 12px; color: #66bb6a; }
+#save-msg.error { color: #ef5350; }
+.log-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 12px; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.status-dot.green { background: #66bb6a; }
+.status-dot.yellow { background: #ffa726; }
+.status-dot.red { background: #ef5350; }
+#log-clear { padding: 4px 12px; border: 1px solid #555; border-radius: 4px; background: transparent; color: #aaa; cursor: pointer; font-size: 11px; margin-left: auto; }
+#log-clear:hover { border-color: #aaa; color: #e0e0e0; }
+#log-container { background: #0d1117; border-radius: 8px; padding: 12px; max-height: 70vh; overflow-y: auto; font-family: "Cascadia Code", "Fira Code", monospace; font-size: 11px; line-height: 1.6; }
+#log-container:empty::after { content: "Waiting for logs..."; color: #555; }
+.log-entry { padding: 2px 0; border-bottom: 1px solid #1a1a2e; word-break: break-all; }
+.log-entry .log-time { color: #555; margin-right: 8px; }
+.log-entry .log-level { display: inline-block; width: 44px; font-weight: 600; }
+.log-entry .log-level.info { color: #4fc3f7; }
+.log-entry .log-level.warn { color: #ffa726; }
+.log-entry .log-level.error { color: #ef5350; }
+.log-entry .log-level.log { color: #888; }
+.log-entry .log-event { color: #888; margin-right: 8px; }
+.log-entry .log-json { color: #aaa; }
+</style>
+</head>
+<body>
+<div id="view-login" style="display:none">
+  <h1>Respons-Proxy Admin</h1>
+  <p id="login-error" class="error-msg"></p>
+  <form id="login-form">
+    <input type="password" id="login-key" placeholder="CLIENT_API_KEY" autofocus>
+    <button type="submit" id="login-submit">验证</button>
+  </form>
+</div>
+
+<div id="view-admin" style="display:none">
+  <header>
+    <h2>&#9881; Respons-Proxy Admin</h2>
+    <button id="restart-btn" style="margin-right:8px;padding:6px 14px;border:1px solid #e65100;border-radius:4px;background:transparent;color:#ff9800;cursor:pointer;font-size:12px;">重启服务</button>
+    <button id="logout-btn">登出</button>
+  </header>
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="config">配置</button>
+    <button class="tab-btn" data-tab="logs">日志</button>
+  </nav>
+
+  <!-- 配置 Tab -->
+  <div id="tab-config" class="tab-panel active">
+    <form id="config-form">
+      <details open>
+        <summary>上游服务</summary>
+        <div class="form-row"><label>UPSTREAM_BASE_URL</label><input name="UPSTREAM_BASE_URL" type="text"></div>
+        <div class="form-row"><label>UPSTREAM_CHAT_COMPLETIONS_URL</label><input name="UPSTREAM_CHAT_COMPLETIONS_URL" type="text"></div>
+        <div class="form-row"><label>UPSTREAM_PROXY_URL</label><input name="UPSTREAM_PROXY_URL" type="text"></div>
+        <div class="form-row"><label>UPSTREAM_API_KEY</label><input name="UPSTREAM_API_KEY" type="password"></div>
+        <div class="form-row"><label>UPSTREAM_TIMEOUT_MS</label><input name="UPSTREAM_TIMEOUT_MS" type="number"></div>
+        <div class="form-row"><label>UPSTREAM_STREAMING</label><input name="UPSTREAM_STREAMING" type="checkbox"></div>
+      </details>
+      <details>
+        <summary>模型映射</summary>
+        <div class="form-row"><label>DEFAULT_MODEL</label><input name="DEFAULT_MODEL" type="text"></div>
+        <div class="form-row"><label>MODEL_MAP</label><textarea name="MODEL_MAP" rows="2"></textarea></div>
+        <div class="form-row"><label>TITLE_MODEL</label><input name="TITLE_MODEL" type="text"></div>
+        <div class="form-row"><label>UPSTREAM_TITLE_MODEL</label><input name="UPSTREAM_TITLE_MODEL" type="text"></div>
+      </details>
+      <details>
+        <summary>鉴权配置</summary>
+        <div class="form-row"><label>CLIENT_API_KEY</label><input name="CLIENT_API_KEY" type="password"></div>
+      </details>
+      <details>
+        <summary>服务配置</summary>
+        <div class="form-row"><label>PORT</label><input name="PORT" type="number"></div>
+        <div class="form-row"><label>HOST</label><input name="HOST" type="text"></div>
+      </details>
+      <details>
+        <summary>历史与调试</summary>
+        <div class="form-row"><label>HISTORY_STORE</label><select name="HISTORY_STORE"><option value="memory">memory</option><option value="file">file</option></select></div>
+        <div class="form-row"><label>HISTORY_FILE_PATH</label><input name="HISTORY_FILE_PATH" type="text"></div>
+        <div class="form-row"><label>HISTORY_MAX_RESPONSES</label><input name="HISTORY_MAX_RESPONSES" type="number"></div>
+        <div class="form-row"><label>UNSUPPORTED_TOOL_POLICY</label><select name="UNSUPPORTED_TOOL_POLICY"><option value="ignore">ignore</option><option value="error">error</option></select></div>
+        <div class="form-row"><label>DEBUG_UPSTREAM_BODY</label><input name="DEBUG_UPSTREAM_BODY" type="checkbox"></div>
+      </details>
+      <div class="save-bar">
+        <button type="submit" id="save-btn">保存配置</button>
+        <span id="save-msg"></span>
+      </div>
+    </form>
+  </div>
+
+  <!-- 日志 Tab -->
+  <div id="tab-logs" class="tab-panel">
+    <div class="log-toolbar">
+      <span class="status-dot green" id="log-dot"></span>
+      <span id="log-status-text">已连接</span>
+      <button id="log-clear">清除</button>
+    </div>
+    <div id="log-container"></div>
+  </div>
+</div>
+
+<script>
+(function() {
+  var key = sessionStorage.getItem("admin_key");
+  var viewLogin = document.getElementById("view-login");
+  var viewAdmin = document.getElementById("view-admin");
+  var loginForm = document.getElementById("login-form");
+  var loginKey = document.getElementById("login-key");
+  var loginError = document.getElementById("login-error");
+  var logoutBtn = document.getElementById("logout-btn");
+  var configForm = document.getElementById("config-form");
+
+  function showView(name) {
+    viewLogin.style.display = name === "login" ? "flex" : "none";
+    viewAdmin.style.display = name === "admin" ? "block" : "none";
+  }
+
+  function api(path, opts) {
+    opts = opts || {};
+    var headers = opts.headers || {};
+    if (key) headers["Authorization"] = "Bearer " + key;
+    headers["Content-Type"] = "application/json";
+    return fetch(path, { method: opts.method || "GET", headers: headers, body: opts.body ? JSON.stringify(opts.body) : undefined }).then(function(r) {
+      if (r.status === 401 && key) { key = null; sessionStorage.removeItem("admin_key"); showView("login"); return null; }
+      return r.json();
+    });
+  }
+
+  function checkAuth() {
+    if (!key) { showView("login"); return; }
+    showView("admin");
+    loadConfig();
+    connectLogs();
+  }
+
+  // Login
+  loginForm.addEventListener("submit", function(e) {
+    e.preventDefault();
+    var val = loginKey.value.trim();
+    if (!val) return;
+    api("/admin/verify", { method: "POST", body: { api_key: val } }).then(function(r) {
+      if (r && r.status === "ok") {
+        key = val;
+        sessionStorage.setItem("admin_key", key);
+        showView("admin");
+        loadConfig();
+        connectLogs();
+      } else {
+        loginError.textContent = "API Key 验证失败";
+        loginError.style.display = "block";
+      }
+    });
+  });
+
+  // Restart
+  document.getElementById("restart-btn").addEventListener("click", function() {
+    if (!confirm("确定要重启服务吗？正在处理的请求可能会中断。")) return;
+    var btn = this;
+    btn.disabled = true;
+    btn.textContent = "重启中...";
+    api("/admin/restart", { method: "POST" }).then(function(r) {
+      if (r && r.status === "ok") {
+        btn.textContent = "已触发重启";
+      } else {
+        btn.textContent = "重启失败";
+        btn.disabled = false;
+      }
+    });
+  });
+
+  // Logout
+  logoutBtn.addEventListener("click", function() {
+    key = null;
+    sessionStorage.removeItem("admin_key");
+    if (window._es) { window._es.close(); window._es = null; }
+    showView("login");
+  });
+
+  // Tab switching
+  document.querySelectorAll(".tab-btn").forEach(function(btn) {
+    btn.addEventListener("click", function() {
+      document.querySelectorAll(".tab-btn").forEach(function(b) { b.classList.remove("active"); });
+      document.querySelectorAll(".tab-panel").forEach(function(p) { p.classList.remove("active"); });
+      btn.classList.add("active");
+      document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
+    });
+  });
+
+  // Load config
+  function loadConfig() {
+    api("/admin/config").then(function(r) {
+      if (!r || !r.config) return;
+      var cfg = r.config;
+      Object.keys(cfg).forEach(function(k) {
+        var el = configForm.querySelector("[name=\"" + k + "\"]");
+        if (!el) return;
+        if (el.type === "checkbox") {
+          el.checked = cfg[k] === "true" || cfg[k] === true;
+        } else {
+          el.value = cfg[k];
+        }
+      });
+    });
+  }
+
+  // Save config
+  configForm.addEventListener("submit", function(e) {
+    e.preventDefault();
+    var data = {};
+    var els = configForm.querySelectorAll("[name]");
+    els.forEach(function(el) {
+      if (el.type === "checkbox") {
+        data[el.name] = el.checked ? "true" : "false";
+      } else {
+        data[el.name] = el.value;
+      }
+    });
+    var msgEl = document.getElementById("save-msg");
+    msgEl.className = "";
+    msgEl.textContent = "保存中...";
+    api("/admin/config", { method: "POST", body: { config: data } }).then(function(r) {
+      if (!r) return;
+      if (r.status === "ok") {
+        var msg = "已保存";
+        if (r.changed_keys && r.changed_keys.length > 0) {
+          msg += " (" + r.changed_keys.join(", ") + ")";
+        }
+        msgEl.textContent = msg;
+        msgEl.className = "";
+        // 检查是否需要重启
+        if (r.restart_required && r.restart_required.length > 0) {
+          var restartMsg = "以下配置需要重启服务才能生效: " + r.restart_required.join(", ") + "\n是否立即重启？";
+          if (confirm(restartMsg)) {
+            document.getElementById("restart-btn").click();
+          }
+        }
+      } else {
+        msgEl.textContent = "保存失败: " + (r.error ? r.error.message : "unknown");
+        msgEl.className = "error";
+      }
+    });
+  });
+
+  // Logs SSE
+  function connectLogs() {
+    if (window._es) window._es.close();
+    var url = "/admin/logs/stream" + (key ? "?token=" + encodeURIComponent(key) : "");
+    var es = new EventSource(url);
+    window._es = es;
+    var dot = document.getElementById("log-dot");
+    var statusText = document.getElementById("log-status-text");
+
+    es.addEventListener("connected", function() {
+      dot.className = "status-dot green";
+      statusText.textContent = "已连接";
+    });
+
+    es.addEventListener("log", function(e) {
+      var data;
+      try { data = JSON.parse(e.data); } catch(_) { return; }
+      var container = document.getElementById("log-container");
+      var autoScroll = container && container.scrollTop + container.clientHeight >= container.scrollHeight - 20;
+      var div = document.createElement("div");
+      div.className = "log-entry";
+      var time = data.timestamp ? data.timestamp.slice(11, 19) : "";
+      var level = data.level || "log";
+      var entry = data.entry || {};
+      var eventName = entry.event || "";
+      var jsonStr = JSON.stringify(entry, null, 1);
+      div.innerHTML = "<span class=\"log-time\">" + time + "</span><span class=\"log-level " + level + "\">" + level.toUpperCase() + "</span><span class=\"log-event\">" + eventName + "</span><span class=\"log-json\">" + escapeHtml(jsonStr) + "</span>";
+      container.appendChild(div);
+      if (autoScroll) container.scrollTop = container.scrollHeight;
+    });
+
+    es.addEventListener("error", function() {
+      dot.className = "status-dot red";
+      statusText.textContent = "已断开，正在重连...";
+    });
+  }
+
+  // Clear logs
+  document.getElementById("log-clear").addEventListener("click", function() {
+    document.getElementById("log-container").innerHTML = "";
+  });
+
+  function escapeHtml(str) {
+    var div = document.createElement("div");
+    div.appendChild(document.createTextNode(str));
+    return div.innerHTML;
+  }
+
+  // Init
+  checkAuth();
+})();
+</script>
+</body>
+</html>
