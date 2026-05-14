@@ -3,329 +3,328 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Respons-Proxy Admin</title>
-<style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #1a1a2e; color: #e0e0e0; min-height: 100vh; }
-#view-login { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
-#view-login h1 { margin-bottom: 24px; font-size: 24px; color: #e0e0e0; }
-#view-login input { width: 300px; padding: 10px 14px; border: 1px solid #333; border-radius: 6px; background: #16213e; color: #e0e0e0; font-size: 14px; margin-bottom: 12px; }
-#view-login input:focus { outline: none; border-color: #4fc3f7; }
-#view-login button { width: 300px; padding: 10px; border: none; border-radius: 6px; background: #4fc3f7; color: #1a1a2e; font-size: 14px; font-weight: 600; cursor: pointer; }
-#view-login button:hover { background: #29b6f6; }
-#login-error { color: #ef5350; margin-bottom: 12px; font-size: 13px; display: none; }
-#view-admin { display: none; }
-header { display: flex; align-items: center; padding: 12px 20px; background: #16213e; border-bottom: 1px solid #333; }
-header h2 { font-size: 16px; flex: 1; }
-#logout-btn { padding: 6px 14px; border: 1px solid #555; border-radius: 4px; background: transparent; color: #aaa; cursor: pointer; font-size: 12px; }
-#logout-btn:hover { border-color: #ef5350; color: #ef5350; }
-.tabs { display: flex; background: #16213e; border-bottom: 1px solid #333; padding: 0 20px; }
-.tab-btn { padding: 10px 20px; border: none; background: transparent; color: #888; cursor: pointer; font-size: 13px; border-bottom: 2px solid transparent; }
-.tab-btn:hover { color: #e0e0e0; }
-.tab-btn.active { color: #4fc3f7; border-bottom-color: #4fc3f7; }
-.tab-panel { display: none; padding: 20px; }
-.tab-panel.active { display: block; }
-#config-form details { margin-bottom: 16px; background: #16213e; border-radius: 8px; overflow: hidden; }
-#config-form summary { padding: 10px 16px; cursor: pointer; font-weight: 600; font-size: 13px; color: #aaa; user-select: none; }
-#config-form summary:hover { color: #e0e0e0; }
-.form-row { display: flex; align-items: center; padding: 6px 16px; }
-.form-row label { width: 200px; font-size: 12px; color: #888; flex-shrink: 0; }
-.form-row input, .form-row select, .form-row textarea { flex: 1; padding: 6px 10px; border: 1px solid #333; border-radius: 4px; background: #1a1a2e; color: #e0e0e0; font-size: 12px; }
-.form-row input:focus, .form-row select:focus, .form-row textarea:focus { outline: none; border-color: #4fc3f7; }
-.form-row textarea { min-height: 60px; resize: vertical; font-family: monospace; }
-.form-row input[type="checkbox"] { flex: none; width: 16px; height: 16px; }
-.save-bar { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
-#save-btn { padding: 8px 24px; border: none; border-radius: 6px; background: #4fc3f7; color: #1a1a2e; font-size: 13px; font-weight: 600; cursor: pointer; }
-#save-btn:hover { background: #29b6f6; }
-#save-msg { font-size: 12px; color: #66bb6a; }
-#save-msg.error { color: #ef5350; }
-.log-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 12px; }
-.status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-.status-dot.green { background: #66bb6a; }
-.status-dot.yellow { background: #ffa726; }
-.status-dot.red { background: #ef5350; }
-#log-clear { padding: 4px 12px; border: 1px solid #555; border-radius: 4px; background: transparent; color: #aaa; cursor: pointer; font-size: 11px; margin-left: auto; }
-#log-clear:hover { border-color: #aaa; color: #e0e0e0; }
-#log-container { background: #0d1117; border-radius: 8px; padding: 12px; max-height: 70vh; overflow-y: auto; font-family: "Cascadia Code", "Fira Code", monospace; font-size: 11px; line-height: 1.6; }
-#log-container:empty::after { content: "Waiting for logs..."; color: #555; }
-.log-entry { padding: 2px 0; border-bottom: 1px solid #1a1a2e; word-break: break-all; }
-.log-entry .log-time { color: #555; margin-right: 8px; }
-.log-entry .log-level { display: inline-block; width: 44px; font-weight: 600; }
-.log-entry .log-level.info { color: #4fc3f7; }
-.log-entry .log-level.warn { color: #ffa726; }
-.log-entry .log-level.error { color: #ef5350; }
-.log-entry .log-level.log { color: #888; }
-.log-entry .log-event { color: #888; margin-right: 8px; }
-.log-entry .log-json { color: #aaa; }
-</style>
+<title>Proxy Admin</title>
+<style>*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px;line-height:1.5}
+:root{--primary:#059669;--primary-hover:#047857;--primary-bg:#d1fae5;--card-bg:#fff;--card-border:#e2e8f0;--bg:#f8fafc;--text:#1e293b;--text-dim:#94a3b8;--input-bg:#f8fafc;--input-border:#e2e8f0;--danger:#dc2626;--danger-bg:#fef2f2;--warning:#d97706;--warning-bg:#fffbeb}
+.dark{--primary:#34d399;--primary-hover:#10b981;--primary-bg:#064e3b;--card-bg:#161b22;--card-border:#30363d;--bg:#0d1117;--text:#c9d1d9;--text-dim:#8b949e;--input-bg:#0d1117;--input-border:#30363d;--danger:#f87171;--danger-bg:#3f1a1a;--warning:#fbbf24;--warning-bg:#3d2c16}
+.header{position:sticky;top:0;z-index:50;width:100%;background:var(--card-bg);border-bottom:1px solid var(--card-border)}
+.header-inner{max-width:960px;margin:0 auto;padding:0 24px;display:flex;align-items:center;height:56px;justify-content:space-between}
+.header-left{display:flex;align-items:center;gap:10px}
+.header-left h1{font-size:16px;font-weight:700;color:var(--text)}
+.header-right{display:flex;align-items:center;gap:8px}
+.main{flex:1;padding:24px}
+.main-inner{max-width:960px;margin:0 auto}
+.tab-bar{display:flex;gap:4px;margin-bottom:24px;flex-wrap:wrap}
+.tab{display:inline-block;padding:6px 14px;border-radius:8px;font-size:12px;font-weight:600;color:var(--text-dim);transition:all .15s;cursor:pointer;text-decoration:none}
+.tab:hover{background:var(--card-border);color:var(--text)}
+.tab.active{background:var(--primary-bg);color:var(--primary)}
+.config-card{background:var(--card-bg);border:1px solid var(--card-border);border-radius:12px;margin-bottom:16px;overflow:hidden}
+.config-header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;cursor:pointer;user-select:none}
+.config-header-left{display:flex;align-items:center;gap:8px}
+.config-header-left svg{width:18px;height:18px;color:var(--primary);flex-shrink:0}
+.config-header-left h3{font-size:14px;font-weight:600}
+.config-chevron{width:16px;height:16px;color:var(--text-dim);transition:transform .2s;flex-shrink:0}
+.config-chevron.open{transform:rotate(180deg)}
+.config-body{padding:0 20px 16px}
+.field{margin-bottom:14px}
+.field:last-child{margin-bottom:0}
+.field-label{display:block;font-size:12px;font-weight:600;color:var(--text);margin-bottom:4px}
+.field-hint{font-size:11px;color:var(--text-dim);margin-bottom:6px;line-height:1.4}
+.field-input{width:100%;padding:8px 12px;background:var(--input-bg);border:1px solid var(--input-border);border-radius:8px;color:var(--text);font-size:13px;outline:none;transition:border-color .15s}
+.field-input:focus{border-color:var(--primary);box-shadow:0 0 0 2px var(--primary-bg)}
+.field-input.mono{font-family:SFMono-Regular,Consolas,"Liberation Mono",Menlo,monospace;font-size:12px}.field-input[type=checkbox]{width:16px;height:16px;accent-color:var(--primary);cursor:pointer}.field-row{display:flex;flex-wrap:wrap;gap:12px}.field-row .field{flex:1;min-width:180px}
+.btn-primary{display:inline-flex;align-items:center;gap:6px;padding:8px 20px;background:var(--primary,#059669);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;transition:background .15s}
+.btn-primary:hover{background:var(--primary-hover,#047857)}.btn-primary:disabled{opacity:.5;cursor:not-allowed}
+.btn-ghost{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;background:transparent;color:var(--text-dim);border:1px solid var(--card-border);border-radius:8px;font-size:12px;font-weight:500;cursor:pointer;transition:all .15s}
+.btn-ghost:hover{color:var(--text);background:var(--card-border)}
+.toast{font-size:12px;font-weight:500;padding:4px 0}
+.toast.success{color:var(--primary)}.toast.error{color:var(--danger)}
+.logs-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:12px}
+.logs-container{background:var(--input-bg);border:1px solid var(--card-border);border-radius:8px;padding:12px;max-height:65vh;overflow-y:auto;font-family:SFMono-Regular,Consolas,"Liberation Mono",Menlo,monospace;font-size:11px;line-height:1.7}
+.logs-container:empty::after{content:"Waiting for logs...";color:var(--text-dim)}
+.login-card{background:var(--card-bg);border:1px solid var(--card-border);border-radius:16px;padding:32px;max-width:380px;width:100%;text-align:center}
+.login-card h1{font-size:18px;font-weight:700;margin-bottom:24px;color:var(--text)}
+.login-card form{display:flex;flex-direction:column;gap:12px}
+.login-card input{padding:10px 14px;background:var(--input-bg);border:1px solid var(--input-border);border-radius:8px;color:var(--text);font-size:14px;outline:none}
+.login-card input:focus{border-color:var(--primary);box-shadow:0 0 0 2px var(--primary-bg)}
+.status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.status-dot.green{background:var(--primary);box-shadow:0 0 6px var(--primary)}
+.status-dot.red{background:var(--danger)}.status-dot.gray{background:var(--text-dim)}
+.log-entry{padding:3px 0;border-bottom:1px solid var(--card-border);word-break:break-all}
+.log-time{color:var(--text-dim);margin-right:10px;user-select:none}
+.log-level{display:inline-block;width:42px;font-weight:600;font-size:10px;text-transform:uppercase}
+.log-level.info{color:var(--primary)}.log-level.warn{color:var(--warning)}.log-level.error{color:var(--danger)}
+.log-event{color:var(--text-dim);margin-right:8px}
+.log-json{color:var(--text)}
+.warning-banner{display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--warning-bg);border:1px solid var(--warning);border-radius:8px;margin-top:12px;font-size:12px;color:var(--warning)}
+.warning-banner svg{width:16px;height:16px;flex-shrink:0}</style>
 </head>
-<body>
-<div id="view-login" style="display:none">
-  <h1>Respons-Proxy Admin</h1>
-  <p id="login-error" class="error-msg"></p>
-  <form id="login-form">
-    <input type="password" id="login-key" placeholder="CLIENT_API_KEY" autofocus>
-    <button type="submit" id="login-submit">验证</button>
-  </form>
-</div>
-
-<div id="view-admin" style="display:none">
-  <header>
-    <h2>&#9881; Respons-Proxy Admin</h2>
-    <button id="restart-btn" style="margin-right:8px;padding:6px 14px;border:1px solid #e65100;border-radius:4px;background:transparent;color:#ff9800;cursor:pointer;font-size:12px;">重启服务</button>
-    <button id="logout-btn">登出</button>
-  </header>
-  <nav class="tabs">
-    <button class="tab-btn active" data-tab="config">配置</button>
-    <button class="tab-btn" data-tab="logs">日志</button>
-  </nav>
-
-  <!-- 配置 Tab -->
-  <div id="tab-config" class="tab-panel active">
-    <form id="config-form">
-      <details open>
-        <summary>上游服务</summary>
-        <div class="form-row"><label>UPSTREAM_BASE_URL</label><input name="UPSTREAM_BASE_URL" type="text"></div>
-        <div class="form-row"><label>UPSTREAM_CHAT_COMPLETIONS_URL</label><input name="UPSTREAM_CHAT_COMPLETIONS_URL" type="text"></div>
-        <div class="form-row"><label>UPSTREAM_PROXY_URL</label><input name="UPSTREAM_PROXY_URL" type="text"></div>
-        <div class="form-row"><label>UPSTREAM_API_KEY</label><input name="UPSTREAM_API_KEY" type="password"></div>
-        <div class="form-row"><label>UPSTREAM_TIMEOUT_MS</label><input name="UPSTREAM_TIMEOUT_MS" type="number"></div>
-        <div class="form-row"><label>UPSTREAM_STREAMING</label><input name="UPSTREAM_STREAMING" type="checkbox"></div>
-      </details>
-      <details>
-        <summary>模型映射</summary>
-        <div class="form-row"><label>DEFAULT_MODEL</label><input name="DEFAULT_MODEL" type="text"></div>
-        <div class="form-row"><label>MODEL_MAP</label><textarea name="MODEL_MAP" rows="2"></textarea></div>
-        <div class="form-row"><label>TITLE_MODEL</label><input name="TITLE_MODEL" type="text"></div>
-        <div class="form-row"><label>UPSTREAM_TITLE_MODEL</label><input name="UPSTREAM_TITLE_MODEL" type="text"></div>
-      </details>
-      <details>
-        <summary>鉴权配置</summary>
-        <div class="form-row"><label>CLIENT_API_KEY</label><input name="CLIENT_API_KEY" type="password"></div>
-      </details>
-      <details>
-        <summary>服务配置</summary>
-        <div class="form-row"><label>PORT</label><input name="PORT" type="number"></div>
-        <div class="form-row"><label>HOST</label><input name="HOST" type="text"></div>
-      </details>
-      <details>
-        <summary>历史与调试</summary>
-        <div class="form-row"><label>HISTORY_STORE</label><select name="HISTORY_STORE"><option value="memory">memory</option><option value="file">file</option></select></div>
-        <div class="form-row"><label>HISTORY_FILE_PATH</label><input name="HISTORY_FILE_PATH" type="text"></div>
-        <div class="form-row"><label>HISTORY_MAX_RESPONSES</label><input name="HISTORY_MAX_RESPONSES" type="number"></div>
-        <div class="form-row"><label>UNSUPPORTED_TOOL_POLICY</label><select name="UNSUPPORTED_TOOL_POLICY"><option value="ignore">ignore</option><option value="error">error</option></select></div>
-        <div class="form-row"><label>DEBUG_UPSTREAM_BODY</label><input name="DEBUG_UPSTREAM_BODY" type="checkbox"></div>
-      </details>
-      <div class="save-bar">
-        <button type="submit" id="save-btn">保存配置</button>
-        <span id="save-msg"></span>
-      </div>
-    </form>
-  </div>
-
-  <!-- 日志 Tab -->
-  <div id="tab-logs" class="tab-panel">
-    <div class="log-toolbar">
-      <span class="status-dot green" id="log-dot"></span>
-      <span id="log-status-text">已连接</span>
-      <button id="log-clear">清除</button>
+<body><div id="view-login" class="flex-center" style="min-height:100vh;flex-direction:column;padding:20px">
+    <div class="login-card">
+      <h1>Proxy Admin</h1>
+      <form id="login-form">
+        <input type="password" id="login-key" placeholder="Dashboard API Key">
+        <button type="submit" class="btn-primary" style="justify-content:center">Verify</button>
+      </form>
+      <p id="login-error" style="display:none;color:var(--danger);font-size:12px;margin-top:12px"></p>
     </div>
-    <div id="log-container"></div>
   </div>
-</div>
-
+  <div id="view-admin" style="display:none">
+    <header class="header">
+      <div class="header-inner">
+        <div class="header-left">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--primary)"><path d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <h1>Proxy Admin</h1>
+        </div>
+        <div class="header-right">
+          <button id="restart-btn" class="btn-ghost">Restart</button>
+          <button id="logout-btn" class="btn-ghost">Logout</button>
+        </div>
+      </div>
+    </header>
+    <main class="main">
+      <div class="main-inner">
+        <nav class="tab-bar">
+          <a class="tab active" data-tab="config">Config</a>
+          <a class="tab" data-tab="logs">Logs</a>
+        </nav>
+        <div id="tab-config" class="tab-content">
+          <form id="config-form"></form>
+          <div class="save-bar" style="display:flex;align-items:center;gap:12px;margin-top:16px">
+            <button type="submit" form="config-form" class="btn-primary">Save Config</button>
+            <span id="save-msg" class="toast"></span>
+          </div>
+        </div>
+        <div id="tab-logs" class="tab-content" style="display:none">
+          <div class="logs-toolbar">
+            <span class="status-dot green" id="log-dot"></span>
+            <span id="log-status-text">Connected</span>
+            <button id="log-clear" class="btn-ghost" style="margin-left:auto">Clear</button>
+          </div>
+          <div id="log-container" class="logs-container"></div>
+        </div>
+      </div>
+    </main>
+  </div>
 <script>
 (function() {
-  var key = sessionStorage.getItem("admin_key");
-  var viewLogin = document.getElementById("view-login");
-  var viewAdmin = document.getElementById("view-admin");
+  var KEY = sessionStorage.getItem("admin_key");
+  var vLogin = document.getElementById("view-login");
+  var vAdmin = document.getElementById("view-admin");
   var loginForm = document.getElementById("login-form");
   var loginKey = document.getElementById("login-key");
   var loginError = document.getElementById("login-error");
   var logoutBtn = document.getElementById("logout-btn");
+  var restartBtn = document.getElementById("restart-btn");
   var configForm = document.getElementById("config-form");
+  var msgEl = document.getElementById("save-msg");
 
-  function showView(name) {
-    viewLogin.style.display = name === "login" ? "flex" : "none";
-    viewAdmin.style.display = name === "admin" ? "block" : "none";
+  function show(name) {
+    vLogin.style.display = name==="login" ? "flex" : "none";
+    vAdmin.style.display = name==="admin" ? "block" : "none";
   }
+
+  var CONFIG_GROUPS = [
+    {title:"Upstream", fields:[
+      {key:"UPSTREAM_BASE_URL",label:"Base URL",hint:"Upstream service base URL"},
+      {key:"UPSTREAM_CHAT_COMPLETIONS_URL",label:"Chat Completions URL",hint:"Full URL (overrides Base URL)"},
+      {key:"UPSTREAM_PROXY_URL",label:"Proxy URL",hint:"HTTP proxy for upstream"},
+      {key:"UPSTREAM_API_KEY",label:"API Key",type:"password",hint:"Upstream API key"},
+      {key:"UPSTREAM_TIMEOUT_MS",label:"Timeout (ms)",type:"number",hint:"Connection timeout"},
+      {key:"UPSTREAM_STREAMING",label:"Streaming",type:"checkbox",hint:"Use streaming for upstream"}]},
+    {title:"Model Mapping",fields:[
+      {key:"DEFAULT_MODEL",label:"Default Model",hint:"Model when not specified in request"},
+      {key:"MODEL_MAP",label:"Model Map",type:"textarea",hint:'JSON or "from=to,from2=to2"'},
+      {key:"TITLE_MODEL",label:"Title Model",hint:"Model for chat title generation"},
+      {key:"UPSTREAM_TITLE_MODEL",label:"Upstream Title Model",hint:"Actual title model on upstream"}]},
+    {title:"Auth",fields:[
+      {key:"CLIENT_API_KEY",label:"Client API Key",type:"password",hint:"Required for client access"}]},
+    {title:"Server",fields:[
+      {key:"PORT",label:"Port",type:"number",hint:"Server port (restart required)"},
+      {key:"HOST",label:"Host",hint:"Listen address (restart required)"}]},
+    {title:"History & Debug",fields:[
+      {key:"HISTORY_STORE",label:"History Store",type:"select",options:["memory","file"],hint:"Storage backend"},
+      {key:"HISTORY_FILE_PATH",label:"History File Path",hint:"Path for file storage"},
+      {key:"HISTORY_MAX_RESPONSES",label:"Max Responses",type:"number",hint:"Max history entries"},
+      {key:"UNSUPPORTED_TOOL_POLICY",label:"Unsupported Tool Policy",type:"select",options:["ignore","error"],hint:"How to handle unsupported tools"},
+      {key:"DEBUG_UPSTREAM_BODY",label:"Debug Upstream Body",type:"checkbox",hint:"Log upstream response body"}]}
+  ];
+
+  function buildConfigForm() {
+    var html = "";
+    CONFIG_GROUPS.forEach(function(g) {
+      html += '<div class="config-card">';
+      html += '<div class="config-header" onclick="this.classList.toggle('open');this.nextElementSibling.classList.toggle('open')">';
+      html += '<div class="config-header-left"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 010 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 010-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28z"/><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg><h3>' + g.title + '</h3></div>';
+      html += '<svg class="config-chevron open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg>';
+      html += '</div>';
+      html += '<div class="config-body open">';
+      g.fields.forEach(function(f) {
+        html += '<div class="field">';
+        html += '<label class="field-label">' + f.label + '</label>';
+        if (f.hint) html += '<div class="field-hint">' + f.hint + '</div>';
+        var name = ' name="' + f.key + '"';
+        if (f.type === "checkbox") {
+          html += '<input type="checkbox"' + name + '>';
+        } else if (f.type === "select") {
+          html += '<select class="field-input"' + name + '>';
+          f.options.forEach(function(o) { html += '<option value="' + o + '">' + o + '</option>'; });
+          html += '</select>';
+        } else if (f.type === "textarea") {
+          html += '<textarea class="field-input mono" rows="2"' + name + '></textarea>';
+        } else if (f.type === "password") {
+          html += '<input type="password" class="field-input mono"' + name + '>';
+        } else if (f.type === "number") {
+          html += '<input type="number" class="field-input mono"' + name + '>';
+        } else {
+          html += '<input type="text" class="field-input mono"' + name + '>';
+        }
+        html += '</div>';
+      });
+      html += '</div></div>';
+    });
+    configForm.innerHTML = html;
+  }
+  buildConfigForm();
 
   function api(path, opts) {
     opts = opts || {};
-    var headers = opts.headers || {};
-    if (key) headers["Authorization"] = "Bearer " + key;
-    headers["Content-Type"] = "application/json";
-    return fetch(path, { method: opts.method || "GET", headers: headers, body: opts.body ? JSON.stringify(opts.body) : undefined }).then(function(r) {
-      if (r.status === 401 && key) { key = null; sessionStorage.removeItem("admin_key"); showView("login"); return null; }
+    var h = opts.headers || {};
+    if (KEY) h["Authorization"] = "Bearer " + KEY;
+    h["Content-Type"] = "application/json";
+    return fetch(path, {method:opts.method||"GET", headers:h, body:opts.body?JSON.stringify(opts.body):null}).then(function(r) {
+      if (r.status===401 && KEY) { KEY=null; sessionStorage.removeItem("admin_key"); show("login"); return null; }
       return r.json();
     });
   }
 
-  function checkAuth() {
-    if (!key) { showView("login"); return; }
-    showView("admin");
+  function init() {
+    buildConfigForm();
+    if (!KEY) { show("login"); return; }
+    show("admin");
     loadConfig();
     connectLogs();
   }
 
-  // Login
   loginForm.addEventListener("submit", function(e) {
     e.preventDefault();
     var val = loginKey.value.trim();
     if (!val) return;
-    api("/admin/verify", { method: "POST", body: { api_key: val } }).then(function(r) {
-      if (r && r.status === "ok") {
-        key = val;
-        sessionStorage.setItem("admin_key", key);
-        showView("admin");
+    api("/admin/verify", {method:"POST", body:{api_key:val}}).then(function(r) {
+      if (r && r.status==="ok") {
+        KEY = val;
+        sessionStorage.setItem("admin_key", KEY);
+        show("admin");
         loadConfig();
         connectLogs();
       } else {
-        loginError.textContent = "API Key 验证失败";
+        loginError.textContent = "Invalid API key";
         loginError.style.display = "block";
       }
     });
   });
 
-  // Restart
-  document.getElementById("restart-btn").addEventListener("click", function() {
-    if (!confirm("确定要重启服务吗？正在处理的请求可能会中断。")) return;
-    var btn = this;
-    btn.disabled = true;
-    btn.textContent = "重启中...";
-    api("/admin/restart", { method: "POST" }).then(function(r) {
-      if (r && r.status === "ok") {
-        btn.textContent = "已触发重启";
-      } else {
-        btn.textContent = "重启失败";
-        btn.disabled = false;
-      }
-    });
-  });
-
-  // Logout
   logoutBtn.addEventListener("click", function() {
-    key = null;
-    sessionStorage.removeItem("admin_key");
-    if (window._es) { window._es.close(); window._es = null; }
-    showView("login");
+    KEY=null; sessionStorage.removeItem("admin_key");
+    if (window._es) { window._es.close(); window._es=null; }
+    show("login");
   });
 
-  // Tab switching
-  document.querySelectorAll(".tab-btn").forEach(function(btn) {
-    btn.addEventListener("click", function() {
-      document.querySelectorAll(".tab-btn").forEach(function(b) { b.classList.remove("active"); });
-      document.querySelectorAll(".tab-panel").forEach(function(p) { p.classList.remove("active"); });
-      btn.classList.add("active");
-      document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
+  var qTabs = document.querySelectorAll(".tab");
+  qTabs.forEach(function(t) {
+    t.addEventListener("click", function() {
+      qTabs.forEach(function(x){x.classList.remove("active")});
+      this.classList.add("active");
+      document.getElementById("tab-config").style.display = this.dataset.tab==="config" ? "block" : "none";
+      document.getElementById("tab-logs").style.display = this.dataset.tab==="logs" ? "block" : "none";
     });
   });
 
-  // Load config
   function loadConfig() {
     api("/admin/config").then(function(r) {
-      if (!r || !r.config) return;
+      if (!r||!r.config) return;
       var cfg = r.config;
       Object.keys(cfg).forEach(function(k) {
-        var el = configForm.querySelector("[name=\"" + k + "\"]");
+        var el = configForm.querySelector("[name=""+k+""]");
         if (!el) return;
-        if (el.type === "checkbox") {
-          el.checked = cfg[k] === "true" || cfg[k] === true;
-        } else {
-          el.value = cfg[k];
-        }
+        if (el.type==="checkbox") el.checked = cfg[k]==="true"||cfg[k]===true;
+        else el.value = cfg[k];
       });
     });
   }
 
-  // Save config
   configForm.addEventListener("submit", function(e) {
     e.preventDefault();
+    msgEl.className = "toast";
+    msgEl.textContent = "Saving...";
     var data = {};
-    var els = configForm.querySelectorAll("[name]");
-    els.forEach(function(el) {
-      if (el.type === "checkbox") {
-        data[el.name] = el.checked ? "true" : "false";
+    configForm.querySelectorAll("[name]").forEach(function(el) {
+      if (el.type==="checkbox") data[el.name] = el.checked?"true":"false";
+      else data[el.name] = el.value;
+    });
+    api("/admin/config", {method:"POST", body:{config:data}}).then(function(r) {
+      if (!r) return;
+      if (r.status==="ok") {
+        msgEl.className = "toast success";
+        msgEl.textContent = "Saved" + (r.changed_keys&&r.changed_keys.length?" ("+r.changed_keys.join(", ")+")":"");
+        if (r.restart_required&&r.restart_required.length) {
+          var rn = r.restart_required.join(", ");
+          var div = document.createElement("div");
+          div.className = "warning-banner";
+          div.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>';
+          div.innerHTML += '<span>Restart required for: ' + rn + '. <a href="#" onclick="if(confirm('Restart now?'))restartBtn.click();return false" style="color:var(--warning);font-weight:600;text-decoration:underline">Restart now</a></span>';
+          configForm.appendChild(div);
+        }
       } else {
-        data[el.name] = el.value;
+        msgEl.className = "toast error";
+        msgEl.textContent = r.error ? r.error.message : "Save failed";
       }
     });
-    var msgEl = document.getElementById("save-msg");
-    msgEl.className = "";
-    msgEl.textContent = "保存中...";
-    api("/admin/config", { method: "POST", body: { config: data } }).then(function(r) {
-      if (!r) return;
-      if (r.status === "ok") {
-        var msg = "已保存";
-        if (r.changed_keys && r.changed_keys.length > 0) {
-          msg += " (" + r.changed_keys.join(", ") + ")";
-        }
-        msgEl.textContent = msg;
-        msgEl.className = "";
-        // 检查是否需要重启
-        if (r.restart_required && r.restart_required.length > 0) {
-          var restartMsg = "以下配置需要重启服务才能生效: " + r.restart_required.join(", ") + "\n是否立即重启？";
-          if (confirm(restartMsg)) {
-            document.getElementById("restart-btn").click();
-          }
-        }
-      } else {
-        msgEl.textContent = "保存失败: " + (r.error ? r.error.message : "unknown");
-        msgEl.className = "error";
-      }
+  });
+
+  // Restart
+  restartBtn.addEventListener("click", function() {
+    if (!confirm("Restart server? In-flight requests will be interrupted.")) return;
+    this.disabled = true; this.textContent = "Restarting...";
+    api("/admin/restart", {method:"POST"}).then(function(r) {
+      if (r&&r.status==="ok") { restartBtn.textContent = "Restarting..."; }
+      else { restartBtn.textContent = "Failed"; restartBtn.disabled = false; }
     });
   });
 
   // Logs SSE
   function connectLogs() {
     if (window._es) window._es.close();
-    var url = "/admin/logs/stream" + (key ? "?token=" + encodeURIComponent(key) : "");
+    var url = "/admin/logs/stream" + (KEY?"?token="+encodeURIComponent(KEY):"");
     var es = new EventSource(url);
     window._es = es;
     var dot = document.getElementById("log-dot");
-    var statusText = document.getElementById("log-status-text");
-
-    es.addEventListener("connected", function() {
-      dot.className = "status-dot green";
-      statusText.textContent = "已连接";
-    });
-
+    var st = document.getElementById("log-status-text");
+    es.addEventListener("connected", function() { dot.className = "status-dot green"; st.textContent = "Connected"; });
     es.addEventListener("log", function(e) {
-      var data;
-      try { data = JSON.parse(e.data); } catch(_) { return; }
+      var d; try { d=JSON.parse(e.data); } catch(x) { return; }
       var container = document.getElementById("log-container");
-      var autoScroll = container && container.scrollTop + container.clientHeight >= container.scrollHeight - 20;
+      var autoScroll = container.scrollTop + container.clientHeight >= container.scrollHeight - 20;
       var div = document.createElement("div");
       div.className = "log-entry";
-      var time = data.timestamp ? data.timestamp.slice(11, 19) : "";
-      var level = data.level || "log";
-      var entry = data.entry || {};
-      var eventName = entry.event || "";
-      var jsonStr = JSON.stringify(entry, null, 1);
-      div.innerHTML = "<span class=\"log-time\">" + time + "</span><span class=\"log-level " + level + "\">" + level.toUpperCase() + "</span><span class=\"log-event\">" + eventName + "</span><span class=\"log-json\">" + escapeHtml(jsonStr) + "</span>";
+      var time = d.timestamp ? d.timestamp.slice(11,19) : "";
+      var level = d.level || "log";
+      var entry = d.entry || {};
+      var evName = entry.event || "";
+      var safe = function(s){var p=document.createElement("div"); p.appendChild(document.createTextNode(s||"")); return p.innerHTML;};
+      div.innerHTML = '<span class="log-time">'+safe(time)+'</span><span class="log-level '+safe(level)+'">'+level.toUpperCase()+'</span><span class="log-event">'+safe(evName)+'</span><span class="log-json">'+safe(JSON.stringify(entry))+'</span>';
       container.appendChild(div);
       if (autoScroll) container.scrollTop = container.scrollHeight;
     });
-
-    es.addEventListener("error", function() {
-      dot.className = "status-dot red";
-      statusText.textContent = "已断开，正在重连...";
-    });
+    es.addEventListener("error", function() { dot.className = "status-dot red"; st.textContent = "Disconnected, reconnecting..."; });
   }
 
-  // Clear logs
   document.getElementById("log-clear").addEventListener("click", function() {
     document.getElementById("log-container").innerHTML = "";
   });
 
-  function escapeHtml(str) {
-    var div = document.createElement("div");
-    div.appendChild(document.createTextNode(str));
-    return div.innerHTML;
-  }
-
-  // Init
-  checkAuth();
+  init();
 })();
 </script>
 </body>
