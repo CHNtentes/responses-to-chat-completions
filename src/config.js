@@ -1,3 +1,5 @@
+import { readFileSync, existsSync } from "node:fs";
+
 export function loadConfig(env = process.env) {
   const modelMap = parseModelMap(env.MODEL_MAP ?? "");
   addTitleModelMap(modelMap, env);
@@ -24,6 +26,37 @@ export function loadConfig(env = process.env) {
     historyMaxResponses: parsePositiveInteger("HISTORY_MAX_RESPONSES", env.HISTORY_MAX_RESPONSES ?? 200),
     modelMap
   };
+}
+
+/**
+ * 从 .env 文件重新加载配置，合并到 process.env，然后返回新配置对象。
+ * .env 文件中的值优先于已有的 process.env 值。
+ * @param {string} [dotenvPath=".env"]
+ */
+export function reloadConfigFromEnvFile(dotenvPath = ".env") {
+  const env = { ...process.env };
+
+  if (existsSync(dotenvPath)) {
+    const text = readFileSync(dotenvPath, "utf8");
+    for (const line of text.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const eqIndex = trimmed.indexOf("=");
+      if (eqIndex === -1) continue;
+      const key = trimmed.slice(0, eqIndex).trim();
+      let value = trimmed.slice(eqIndex + 1).trim();
+      if ((value.startsWith('"') && value.endsWith('"')) ||
+          (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1);
+      }
+      if (key) {
+        env[key] = value;
+        process.env[key] = value;
+      }
+    }
+  }
+
+  return loadConfig(env);
 }
 
 export function resolveChatCompletionsUrl(cfg) {

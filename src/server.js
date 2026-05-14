@@ -9,12 +9,12 @@ import {
   chatResponseToAssistantMessages,
   UnsupportedToolError
 } from "./adapter.js";
-import { loadConfig, resolveChatCompletionsUrl } from "./config.js";
+import { loadConfig, reloadConfigFromEnvFile, resolveChatCompletionsUrl } from "./config.js";
 import { createHistoryStore } from "./history-store.js";
 import { readSseData, writeSse as writeRawSse } from "./sse.js";
 import { requestUpstream } from "./upstream-client.js";
 
-const config = loadConfig();
+let config = loadConfig();
 let nextSequenceNumber = 0;
 
 export function createServer(options = {}) {
@@ -27,6 +27,10 @@ export function createServer(options = {}) {
   return http.createServer(async (req, res) => {
     const requestId = makeRequestId();
     try {
+      // --- 管理接口：热重载配置 ---
+      if (req.method === "POST" && req.url === "/admin/reload") {
+        return handleReload(req, res, cfg, logger, requestId);
+      }
       if (req.method === "GET" && req.url === "/health") {
         return sendJson(res, 200, { status: "ok" });
       }
@@ -103,6 +107,55 @@ export function createServer(options = {}) {
       });
     }
   });
+}
+
+// ---- 热重载处理 ----
+
+async function handleReload(req, res, cfg, logger, requestId) {
+  if (cfg.clientApiKey && !isAuthorized(req, cfg.clientApiKey)) {
+    return sendJson(res, 401, { error: { message: "Unauthorized", type: "unauthorized" } });
+  }
+
+  try {
+    const body = await readJson(req).catch(() => ({}));
+    const dotenvPath = body.dotenv_path ?? ".env";
+    const newConfig = reloadConfigFromEnvFile(dotenvPath);
+
+    // 记录变更的配置键（跳过敏感字段）
+    const changes = [];
+    for (const key of Object.keys(newConfig)) {
+      if (key === "upstreamApiKey" || key === "clientApiKey") continue;
+      if (JSON.stringify(newConfig[key]) !== JSON.stringify(config[key])) {
+        changes.push(key);
+      }
+    }
+
+    config = newConfig;
+
+    log(logger, 'log', {
+      event: "config.reloaded",
+      request_id: requestId,
+      dotenv_path: dotenvPath,
+      changed_keys: changes,
+      message: "配置已热重载。注意：HISTORY_STORE、PORT、HOST 变更需要重启容器"
+    });
+
+    sendJson(res, 200, {
+      status: "ok",
+      message: "配置已热重载",
+      changed_keys: changes,
+      note: "HISTORY_STORE、PORT、HOST 变更需要重启容器才能生效"
+    });
+  } catch (error) {
+    log(logger, 'error', {
+      event: "config.reload.failed",
+      request_id: requestId,
+      error: error.message
+    });
+    sendJson(res, 400, {
+      error: { message: `配置重载失败: ${error.message}`, type: "config_reload_failed" }
+    });
+  }
 }
 
 async function proxyBufferedStreamingResponse(res, cfg, chatRequest, historyStore, logger, requestId) {
